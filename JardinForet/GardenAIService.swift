@@ -17,7 +17,7 @@ struct PlantNetService {
         var errorDescription: String? {
             switch self {
             case .missingAPIKey:
-                return "La clé API PlantNet est manquante. Ajoute PLANTNET_API_KEY dans Info.plist."
+                return "La clé API PlantNet est manquante. Configure PLANTNET_API_KEY dans les Build Settings (ou un xcconfig local non versionné)."
             case .noImages:
                 return "Ajoute au moins une photo avant d’identifier."
             case .invalidImageFormat:
@@ -1038,5 +1038,4 @@ final class GardenAIService {
         Schema(type: .string, nullable: true)
     }
 }
-
 
