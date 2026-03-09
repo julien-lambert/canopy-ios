@@ -1,0 +1,10 @@
+.DS_Store
+xcuserdata/
+*.xcuserstate
+*.db
+*.backup
+*.bak
+Archive/
+JardinForet/textures/Metal010_4K-PNG.zip
+JardinForet/textures/Metal010_4K-PNG_NormalDX.png
+JardinForet/textures/Metal010_4K-PNG_NormalGL.png

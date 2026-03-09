@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Utilisé uniquement pour associer des contacts aux observations du jardin si vous activez cette fonctionnalité.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Permet de sélectionner une photo pour identifier une plante via PlantNet.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Permet de prendre des photos de feuilles, fleurs, fruits ou silhouette pour l’identification PlantNet.</string>
+	<key>PLANTNET_API_KEY</key>
+	<string>2b10Xj8Y1u4D3ySRnRT51e7Fuu</string>
+	<key>GEMINI_API_KEY</key>
+	<string>AIzaSyCbYA-w6NxG0j9mSGRwr_DB6uqQwQ13o4M</string>
+	<key>SUPABASE_URL</key>
+	<string>$(SUPABASE_URL)</string>
+	<key>SUPABASE_ANON_KEY</key>
+	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInMedia</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

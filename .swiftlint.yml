@@ -1,0 +1,28 @@
+disabled_rules:
+  - trailing_whitespace
+  - line_length
+  - identifier_name
+  - type_body_length
+  - function_body_length
+  - file_length
+  - cyclomatic_complexity
+  - force_cast
+  - private_over_fileprivate
+  - vertical_whitespace
+  - large_tuple
+  - nesting
+  - implicit_optional_initialization
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - implicit_return
+  - redundant_nil_coalescing
+  - sorted_imports
+
+excluded:
+  - Archive
+  - JardinForet.xcodeproj
+  - scripts
+  - supabase

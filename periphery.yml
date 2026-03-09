@@ -1,0 +1,10 @@
+project: JardinForet.xcodeproj
+schemes:
+  - JardinForet
+targets:
+  - JardinForet
+format: xcode
+retain_public: true
+clean_build: true
+retain_files:
+  - AppLog.swift
