@@ -9,6 +9,7 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var workspaceStore: CanopyWorkspaceStore
 
     var body: some View {
 #if os(macOS)
@@ -36,7 +37,7 @@ struct HomeView: View {
                             .foregroundColor(.accentPrimary)
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Jardin-forêt de Devey")
+                        Text(workspaceStore.selectedSiteName)
                             .font(.title2).bold()
                         Text("Centre de contrôle du jardin vivant")
                             .font(.subheadline)
@@ -54,33 +55,55 @@ struct HomeView: View {
                 LazyVGrid(columns: [GridItem(.flexible()),
                                     GridItem(.flexible())],
                           spacing: 12) {
-                    NavigationLink(destination: PlantsListView()) {
-                        ActionCard(
-                            title: "Individus",
-                            subtitle: "Voir tous les plants",
-                            systemImage: "tree"
-                        )
+                    if workspaceStore.isModuleEnabled("plants") {
+                        NavigationLink(destination: PlantsListView()) {
+                            ActionCard(
+                                title: "Individus",
+                                subtitle: "Voir tous les plants",
+                                systemImage: "tree"
+                            )
+                        }
+                        NavigationLink(destination: SpeciesListView()) {
+                            ActionCard(
+                                title: "Espèces",
+                                subtitle: "Taxonomie du jardin",
+                                systemImage: "leaf.circle"
+                            )
+                        }
                     }
-                    NavigationLink(destination: SpeciesListView()) {
-                        ActionCard(
-                            title: "Espèces",
-                            subtitle: "Taxonomie du jardin",
-                            systemImage: "leaf.circle"
-                        )
+                    if workspaceStore.isModuleEnabled("cartography_gis") {
+                        NavigationLink(destination: GardenMapView()) {
+                            ActionCard(
+                                title: "Carte",
+                                subtitle: "Vue géographique du site",
+                                systemImage: "map"
+                            )
+                        }
                     }
-                    NavigationLink(destination: HivesListView()) {
-                        ActionCard(
-                            title: "Ruches",
-                            subtitle: "Matériel & récoltes",
-                            systemImage: "hexagon.fill"
-                        )
+                    if workspaceStore.isModuleEnabled("hives") {
+                        NavigationLink(destination: HivesListView()) {
+                            ActionCard(
+                                title: "Ruches",
+                                subtitle: "Matériel & récoltes",
+                                systemImage: "hexagon.fill"
+                            )
+                        }
+                        NavigationLink(destination: ColoniesListView()) {
+                            ActionCard(
+                                title: "Colonies",
+                                subtitle: "Santé des abeilles",
+                                systemImage: "ant.fill"
+                            )
+                        }
                     }
-                    NavigationLink(destination: ColoniesListView()) {
-                        ActionCard(
-                            title: "Colonies",
-                            subtitle: "Santé des abeilles",
-                            systemImage: "ant.fill"
-                        )
+                    if workspaceStore.isModuleEnabled("plantnet") {
+                        NavigationLink(destination: PlantIdentifierView()) {
+                            ActionCard(
+                                title: "Identifier",
+                                subtitle: "PlantNet / reconnaissance",
+                                systemImage: "camera.viewfinder"
+                            )
+                        }
                     }
                 }
 
@@ -141,7 +164,7 @@ struct HomeView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Jardin-forêt de Devey")
+                            Text(workspaceStore.selectedSiteName)
                                 .font(.largeTitle.bold())
                                 .foregroundColor(.textPrimary)
                             Text("Tableau de bord général du jardin vivant")

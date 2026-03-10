@@ -193,10 +193,12 @@ struct PlantFormView: View {
 #endif
             }
 
-            NavigationLink {
-                SpeciesFormView(existingSpecies: nil, cultivars: [])
-            } label: {
-                Label("Créer une espèce", systemImage: "plus.circle")
+            if store.canMutateSpeciesAndIndividuals {
+                NavigationLink {
+                    SpeciesFormView(existingSpecies: nil, cultivars: [])
+                } label: {
+                    Label("Créer une espèce", systemImage: "plus.circle")
+                }
             }
         }
     }
@@ -247,7 +249,7 @@ struct PlantFormView: View {
                 }
             }
 
-            if let selectedSpecies {
+            if store.canMutateCultivars, let selectedSpecies {
                 NavigationLink {
                     CultivarFormView(
                         mode: .create(
@@ -420,9 +422,30 @@ struct PlantFormView: View {
     /// Chargement des espèces depuis la base locale
     private func loadSpecies() {
         let list = store.fetchSpeciesBase()
-        // On trie par nom commun
-        speciesList = list.sorted { (a, b) in
-            a.commonName.localizedCaseInsensitiveCompare(b.commonName) == .orderedAscending
+
+        // Déduplique les doublons visibles dans le picker (même espèce logique),
+        // en gardant l'entrée la plus utile (cultivars/plants les plus nombreux).
+        var bestByKey: [String: GardenTaxon] = [:]
+
+        for species in list {
+            let latin = species.latinName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let common = species.commonName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let key = latin.isEmpty ? "common:\(common)" : "latin:\(latin)"
+
+            guard let existing = bestByKey[key] else {
+                bestByKey[key] = species
+                continue
+            }
+
+            let currentScore = (species.cultivarCount, species.plantCount, species.id)
+            let existingScore = (existing.cultivarCount, existing.plantCount, existing.id)
+            if currentScore > existingScore {
+                bestByKey[key] = species
+            }
+        }
+
+        speciesList = bestByKey.values.sorted { lhs, rhs in
+            lhs.commonName.localizedCaseInsensitiveCompare(rhs.commonName) == .orderedAscending
         }
     }
 
@@ -434,15 +457,9 @@ struct PlantFormView: View {
             return
         }
 
-        // On récupère l'espèce correspondante pour obtenir son nom latin
-        guard let species = speciesList.first(where: { $0.id == speciesId }) else {
-            cultivarList = []
-            selectedCultivarId = nil
-            return
-        }
-
-        // On utilise le détail d'espèce pour récupérer la liste des cultivars
-        guard let detail = store.fetchSpeciesDetail(latinName: species.latinName) else {
+        // On utilise le détail par ID pour éviter les collisions quand plusieurs
+        // lignes legacy partagent le même nom latin.
+        guard let detail = store.fetchSpeciesDetail(speciesId: Int32(speciesId)) else {
             cultivarList = []
             selectedCultivarId = nil
             return
@@ -472,8 +489,10 @@ struct PlantFormView: View {
     private func hydrateFromExistingIfNeeded() {
         guard case .edit(let plant) = mode else { return }
 
-        // On essaie de retrouver l'espèce correspondante à partir du nom latin de la plante
-        if let match = speciesList.first(where: { $0.latinName == plant.latinName }) {
+        // En v2 on privilégie l'identifiant stable de l'espèce de l'individu.
+        if let matchByID = speciesList.first(where: { $0.id == plant.speciesID }) {
+            selectedSpeciesId = matchByID.id
+        } else if let match = speciesList.first(where: { $0.latinName == plant.latinName }) {
             selectedSpeciesId = match.id
         } else {
             selectedSpeciesId = nil

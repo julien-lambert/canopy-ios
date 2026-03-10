@@ -57,6 +57,8 @@
 		1D7EF8462ECFE6DA00E4E44C /* Exceptions for "JardinForet" folder in "JardinForet" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Config/Secrets.xcconfig,
+				Config/Secrets.xcconfig.example,
 				Info.plist,
 			);
 			target = 1DC4E6652ECA0B6000FA93E7 /* JardinForet */;
@@ -450,8 +452,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZybXlqZWd6ZXZ3bGt1eHhlanNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODUyMTEsImV4cCI6MjA3OTI2MTIxMX0.efCNUURNr_hGabyfMQBfQYeNHYvgyOXp9FwulnD-l7E";
-				SUPABASE_URL = "https://frmyjegzevwlkuxxejsj.supabase.co";
+				SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImducXFjcXh5d2ltb212c2JzcHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2OTc3OTIsImV4cCI6MjA4ODI3Mzc5Mn0.lna5AqY5iR7B5uqh2txy3K0MxW6bjVx9Jo8b81NgTKA;
+				SUPABASE_PROJECT_REF = gnqqcqxywimomvsbsprr;
+				SUPABASE_REDIRECT_URL = "jardinforet://auth/callback";
+				SUPABASE_URL = "https://gnqqcqxywimomvsbsprr.supabase.co";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
@@ -508,8 +512,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
-				SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZybXlqZWd6ZXZ3bGt1eHhlanNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2ODUyMTEsImV4cCI6MjA3OTI2MTIxMX0.efCNUURNr_hGabyfMQBfQYeNHYvgyOXp9FwulnD-l7E";
-				SUPABASE_URL = "https://frmyjegzevwlkuxxejsj.supabase.co";
+				SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImducXFjcXh5d2ltb212c2JzcHJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2OTc3OTIsImV4cCI6MjA4ODI3Mzc5Mn0.lna5AqY5iR7B5uqh2txy3K0MxW6bjVx9Jo8b81NgTKA;
+				SUPABASE_PROJECT_REF = gnqqcqxywimomvsbsprr;
+				SUPABASE_REDIRECT_URL = "jardinforet://auth/callback";
+				SUPABASE_URL = "https://gnqqcqxywimomvsbsprr.supabase.co";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;

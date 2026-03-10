@@ -4,6 +4,17 @@
 <dict>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>supabase-auth-callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>jardinforet</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSContactsUsageDescription</key>
 	<string>Utilisé uniquement pour associer des contacts aux observations du jardin si vous activez cette fonctionnalité.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
@@ -18,6 +29,10 @@
 	<string>$(SUPABASE_URL)</string>
 	<key>SUPABASE_ANON_KEY</key>
 	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>SUPABASE_PROJECT_REF</key>
+	<string>$(SUPABASE_PROJECT_REF)</string>
+	<key>SUPABASE_REDIRECT_URL</key>
+	<string>$(SUPABASE_REDIRECT_URL)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoadsInMedia</key>

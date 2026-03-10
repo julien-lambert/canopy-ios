@@ -79,18 +79,20 @@ struct SpeciesDetailView: View {
 #if os(iOS)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        NavigationLink {
-                            SpeciesFormView(existingSpecies: detail.base, cultivars: detail.cultivars)
-                        } label: {
-                            Image(systemName: "square.and.pencil")
-                        }
-
-                        if canDeleteSpecies(detail) {
-                            Button(role: .destructive) {
-                                showingDeleteAlert = true
+                    if store.canMutateSpeciesAndIndividuals {
+                        ToolbarItemGroup(placement: .primaryAction) {
+                            NavigationLink {
+                                SpeciesFormView(existingSpecies: detail.base, cultivars: detail.cultivars)
                             } label: {
-                                Image(systemName: "trash")
+                                Image(systemName: "square.and.pencil")
+                            }
+
+                            if canDeleteSpecies(detail) {
+                                Button(role: .destructive) {
+                                    showingDeleteAlert = true
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
                             }
                         }
                     }

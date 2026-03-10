@@ -952,11 +952,37 @@ extension DBSpecies {
     }
 
     func asDTO() -> SpeciesDTO {
-        do {
-            return try DTOBridge.convert(self, to: SpeciesDTO.self)
-        } catch {
-            preconditionFailure("DBSpecies -> SpeciesDTO conversion failed: \(error)")
-        }
+        SpeciesDTO(
+            id: Int(id ?? 0),
+            commonName: commonName,
+            varietyName: varietyName,
+            latinName: latinName,
+            family: family,
+            genus: genus,
+            strata: strata,
+            tags: tags,
+            notes: notes,
+            imageURL: imageURL,
+            origin: origin,
+            plantType: plantType,
+            morphology: morphology,
+            culture: culture,
+            uses: uses,
+            melliferousLevel: melliferousLevel,
+            ornamentalInterest: ornamentalInterest,
+            lifespanMin: FlexibleInt(value: lifespanMin),
+            lifespanMax: FlexibleInt(value: lifespanMax),
+            heightMin: FlexibleDouble(value: heightMin),
+            heightMax: FlexibleDouble(value: heightMax),
+            envergureMin: FlexibleDouble(value: envergureMin),
+            envergureMax: FlexibleDouble(value: envergureMax),
+            floweringPeriod: floweringPeriod,
+            fruitingPeriod: fruitingPeriod,
+            varietyNotes: varietyNotes,
+            uuid: uuid,
+            updatedAt: updatedAt,
+            deleted: deleted
+        )
     }
 
     func asTaxon(kind: GardenTaxonKind = .species) -> GardenTaxon {
@@ -1068,11 +1094,29 @@ extension DBCultivar {
     }
 
     func asDTO() -> CultivarDTO {
-        do {
-            return try DTOBridge.convert(self, to: CultivarDTO.self)
-        } catch {
-            preconditionFailure("DBCultivar -> CultivarDTO conversion failed: \(error)")
-        }
+        CultivarDTO(
+            id: Int(id ?? 0),
+            speciesId: Int(speciesId),
+            name: name,
+            notes: notes,
+            tags: tags,
+            origin: origin,
+            plantType: plantType,
+            morphology: morphology,
+            culture: culture,
+            uses: uses,
+            melliferousLevel: melliferousLevel,
+            ornamentalInterest: ornamentalInterest,
+            lifespanMin: FlexibleInt(value: lifespanMin),
+            lifespanMax: FlexibleInt(value: lifespanMax),
+            heightMin: FlexibleDouble(value: heightMin),
+            heightMax: FlexibleDouble(value: heightMax),
+            floweringPeriod: floweringPeriod,
+            fruitingPeriod: fruitingPeriod,
+            uuid: uuid,
+            updatedAt: updatedAt,
+            deleted: deleted
+        )
     }
 
     func asTaxon(plantCount: Int) -> GardenTaxon {
@@ -1106,16 +1150,40 @@ extension DBPlant {
     }
 
     func asDTO() -> PlantDTO {
-        do {
-            return try DTOBridge.convert(self, to: PlantDTO.self)
-        } catch {
-            preconditionFailure("DBPlant -> PlantDTO conversion failed: \(error)")
-        }
+        PlantDTO(
+            id: Int(id ?? 0),
+            speciesId: Int(speciesId),
+            label: label,
+            lat: lat,
+            lon: lon,
+            zone: zone,
+            plantedAt: plantedAt,
+            notes: notes,
+            imageLocal: imageLocal,
+            altitude: altitude,
+            tags: tags,
+            microSite: microSite,
+            exposureLocal: exposureLocal,
+            soilLocal: soilLocal,
+            heightCurrent: heightCurrent,
+            envergureCurrent: envergureCurrent,
+            acquisitionType: acquisitionType,
+            acquisitionSource: acquisitionSource,
+            plantnetObsId: plantnetObsId,
+            status: status,
+            careNotes: careNotes,
+            rootstock: rootstock,
+            uuid: uuid,
+            updatedAt: updatedAt,
+            deleted: deleted,
+            varietyId: varietyId.map(Int.init)
+        )
     }
 
     func asGardenPlant(species: DBSpecies, cultivar: DBCultivar?) -> GardenPlant {
         GardenPlant(
             id: Int(id ?? 0),
+            uuid: uuid,
             speciesID: Int(speciesId),
             label: label,
             lat: lat,
@@ -1198,6 +1266,7 @@ extension DBHive {
 
 struct GardenPlant: Identifiable, Hashable {
     let id: Int
+    let uuid: String?
     let speciesID: Int
     let label: String?
     let lat: Double?

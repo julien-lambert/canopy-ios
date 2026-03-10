@@ -50,25 +50,27 @@ struct PlantsListView: View {
         .searchable(text: $searchText, prompt: "Rechercher un plant")
         .navigationTitle("Plantes")
         .toolbar {
+            if store.canMutateSpeciesAndIndividuals {
 #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showingCreatePlantForm = true
-                } label: {
-                    Image(systemName: "plus")
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showingCreatePlantForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Ajouter un individu")
                 }
-                .accessibilityLabel("Ajouter un individu")
-            }
 #else
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    showingCreatePlantForm = true
-                } label: {
-                    Image(systemName: "plus")
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showingCreatePlantForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Ajouter un individu")
                 }
-                .accessibilityLabel("Ajouter un individu")
-            }
 #endif
+            }
         }
         .sheet(isPresented: $showingCreatePlantForm) {
             NavigationStack {
@@ -107,13 +109,15 @@ struct PlantsListView: View {
         .searchable(text: $searchText, prompt: "Rechercher un plant")
         .navigationTitle("Plantes")
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    showingCreatePlantForm = true
-                } label: {
-                    Image(systemName: "plus")
+            if store.canMutateSpeciesAndIndividuals {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showingCreatePlantForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Ajouter un individu")
                 }
-                .accessibilityLabel("Ajouter un individu")
             }
         }
         .sheet(isPresented: $showingCreatePlantForm) {

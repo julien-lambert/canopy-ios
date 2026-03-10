@@ -38,19 +38,21 @@ struct PlantDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                // Bouton éditer
-                Button {
-                    showingPlantForm = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
+            if store.canMutateSpeciesAndIndividuals {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    // Bouton éditer
+                    Button {
+                        showingPlantForm = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
 
-                // Bouton supprimer (destructif)
-                Button(role: .destructive) {
-                    showingDeleteAlert = true
-                } label: {
-                    Image(systemName: "trash")
+                    // Bouton supprimer (destructif)
+                    Button(role: .destructive) {
+                        showingDeleteAlert = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
                 }
             }
         }

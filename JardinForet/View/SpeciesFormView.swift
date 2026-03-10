@@ -139,7 +139,7 @@ struct SpeciesFormView: View {
                 TextField("Type (arbre, arbuste, vivace…)", text: $plantType)
             }
 
-            if let existing = existingSpecies {
+            if let existing = existingSpecies, store.canMutateCultivars {
                 Section(header: Text("Cultivars")) {
                     NavigationLink {
                         CultivarFormView(

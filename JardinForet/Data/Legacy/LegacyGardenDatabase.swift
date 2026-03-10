@@ -13,13 +13,13 @@ final class GardenDatabase: ObservableObject {
         let sampleSpeciesImageURLs: [String]
     }
 
-    init() {
+    init(useBundledSeed: Bool = true) {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
         configuration.busyMode = .timeout(5.0)
 
         do {
-            let databaseURL = try Self.prepareLocalDatabaseURL()
+            let databaseURL = try Self.prepareLocalDatabaseURL(useBundledSeed: useBundledSeed)
             dbPool = try DatabasePool(path: databaseURL.path, configuration: configuration)
         } catch {
             AppLog.error("Initialisation base impossible: \(error)", category: .database)
@@ -27,7 +27,24 @@ final class GardenDatabase: ObservableObject {
         }
     }
 
-    private static func prepareLocalDatabaseURL() throws -> URL {
+    private static func prepareLocalDatabaseURL(useBundledSeed: Bool) throws -> URL {
+        let fm = FileManager.default
+        let docsURL = try fm.url(
+            for: .documentDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+
+        if !useBundledSeed {
+            let disabledURL = docsURL.appendingPathComponent("jardin_legacy_disabled.db")
+            if !fm.fileExists(atPath: disabledURL.path) {
+                _ = fm.createFile(atPath: disabledURL.path, contents: nil)
+                AppLog.warning("Legacy DB seed disabled: using \(disabledURL.lastPathComponent)", category: .database)
+            }
+            return disabledURL
+        }
+
         guard let bundledURL = Bundle.main.url(forResource: "jardin", withExtension: "db") else {
             throw NSError(
                 domain: "GardenDatabase",
@@ -36,13 +53,6 @@ final class GardenDatabase: ObservableObject {
             )
         }
 
-        let fm = FileManager.default
-        let docsURL = try fm.url(
-            for: .documentDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
         let destURL = docsURL.appendingPathComponent("jardin.db")
 
         if !fm.fileExists(atPath: destURL.path) {

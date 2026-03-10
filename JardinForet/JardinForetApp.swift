@@ -11,9 +11,12 @@ struct JardinForetApp: App {
         case colonies
         case identifier
         case vr
+        case account
     }
 
     @StateObject private var store: GardenStore
+    @StateObject private var authStore = CanopyAuthStore()
+    @StateObject private var workspaceStore = CanopyWorkspaceStore()
     @StateObject var locationManager = LocationManager()
     @State private var selectedTab: IOSTab = .home
 
@@ -24,92 +27,239 @@ struct JardinForetApp: App {
     var body: some Scene {
         #if os(iOS)
         WindowGroup {
-            TabView(selection: $selectedTab) {
-                NavigationStack {
-                    HomeView()
-                }
-                .tag(IOSTab.home)
-                .tabItem {
-                    Label("Accueil", systemImage: "house")
-                }
-
-                NavigationStack {
-                    PlantsListView()
-                }
-                .tag(IOSTab.plants)
-                .tabItem {
-                    Label("Plantes", systemImage: "leaf")
-                }
-
-                NavigationStack {
-                    SpeciesListView()
-                }
-                .tag(IOSTab.species)
-                .tabItem {
-                    Label("Espèces", systemImage: "tree")
-                }
-
-                NavigationStack {
-                    if selectedTab == .map {
-                        GardenMapView()
+            Group {
+                if authStore.isAuthenticated {
+                    if workspaceStore.isLoading && !workspaceStore.didLoadOnce {
+                        ProgressView("Chargement du workspace…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if workspaceStore.sites.isEmpty {
+                        VStack(spacing: 16) {
+                            Text("Aucun site disponible")
+                                .font(.title3.weight(.semibold))
+                            Text("Ton compte n’a pas encore de site membre dans Canopy.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                            Button("Rafraîchir") {
+                                Task { await workspaceStore.refresh() }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        Color.clear
+                        TabView(selection: $selectedTab) {
+                            NavigationStack {
+                                HomeView()
+                            }
+                            .tag(IOSTab.home)
+                            .tabItem {
+                                Label("Accueil", systemImage: "house")
+                            }
+
+                            if workspaceStore.isModuleEnabled("plants") {
+                                NavigationStack {
+                                    PlantsListView()
+                                }
+                                .tag(IOSTab.plants)
+                                .tabItem {
+                                    Label("Plantes", systemImage: "leaf")
+                                }
+
+                                NavigationStack {
+                                    SpeciesListView()
+                                }
+                                .tag(IOSTab.species)
+                                .tabItem {
+                                    Label("Espèces", systemImage: "tree")
+                                }
+                            }
+
+                            if workspaceStore.isModuleEnabled("cartography_gis") {
+                                NavigationStack {
+                                    if selectedTab == .map {
+                                        GardenMapView()
+                                    } else {
+                                        Color.clear
+                                    }
+                                }
+                                .tag(IOSTab.map)
+                                .tabItem {
+                                    Label("Carte", systemImage: "map")
+                                }
+                            }
+
+                            if workspaceStore.isModuleEnabled("hives") {
+                                NavigationStack {
+                                    HivesListView()
+                                }
+                                .tag(IOSTab.hives)
+                                .tabItem {
+                                    Label("Ruches", systemImage: "hexagon")
+                                }
+
+                                NavigationStack {
+                                    ColoniesListView()
+                                }
+                                .tag(IOSTab.colonies)
+                                .tabItem {
+                                    Label("Colonies", systemImage: "square.grid.2x2")
+                                }
+                            }
+
+                            if workspaceStore.isModuleEnabled("plantnet") {
+                                NavigationStack {
+                                    PlantIdentifierView()
+                                }
+                                .tag(IOSTab.identifier)
+                                .tabItem {
+                                    Label("Identifier", systemImage: "camera.viewfinder")
+                                }
+                            }
+
+                            if workspaceStore.isModuleEnabled("ar_gps") {
+                                NavigationStack {
+                                    if selectedTab == .vr {
+                                        VRView()
+                                    } else {
+                                        Color.clear
+                                    }
+                                }
+                                .tag(IOSTab.vr)
+                                .tabItem {
+                                    Label("VR", systemImage: "cube")
+                                }
+                            }
+
+                            AccountView()
+                                .tag(IOSTab.account)
+                                .tabItem {
+                                    Label("Compte", systemImage: "person.crop.circle")
+                                }
+                        }
+                    }
+                } else {
+                    LoginView()
+                }
+            }
+            .onOpenURL { url in
+                guard let client = CanopySupabaseClientProvider.shared else { return }
+                client.auth.handle(url)
+            }
+            .task {
+                if authStore.isAuthenticated {
+                    await workspaceStore.refresh()
+                    ensureSelectedTabIsAvailable()
+                    if workspaceStore.selectedSiteID != nil {
+                        store.startSyncSession(force: true, refreshImages: true)
                     }
                 }
-                .tag(IOSTab.map)
-                .tabItem {
-                    Label("Carte", systemImage: "map")
-                }
-
-                NavigationStack {
-                    HivesListView()
-                }
-                .tag(IOSTab.hives)
-                .tabItem {
-                    Label("Ruches", systemImage: "hexagon")
-                }
-
-                NavigationStack {
-                    ColoniesListView()
-                }
-                .tag(IOSTab.colonies)
-                .tabItem {
-                    Label("Colonies", systemImage: "square.grid.2x2")
-                }
-
-                NavigationStack {
-                    PlantIdentifierView()
-                }
-                .tag(IOSTab.identifier)
-                .tabItem {
-                    Label("Identifier", systemImage: "camera.viewfinder")
-                }
-
-                NavigationStack {
-                    if selectedTab == .vr {
-                        VRView()
-                    } else {
-                        Color.clear
+            }
+            .onChange(of: authStore.isAuthenticated) { _, isAuthenticated in
+                if isAuthenticated {
+                    Task {
+                        await workspaceStore.refresh()
+                        ensureSelectedTabIsAvailable()
+                        if workspaceStore.selectedSiteID != nil {
+                            store.startSyncSession(force: true, refreshImages: true)
+                        }
                     }
+                } else {
+                    selectedTab = .home
                 }
-                .tag(IOSTab.vr)
-                .tabItem {
-                    Label("VR", systemImage: "cube")
-                }
+            }
+            .onChange(of: workspaceStore.selectedSiteID) { _, siteID in
+                guard authStore.isAuthenticated, siteID != nil else { return }
+                ensureSelectedTabIsAvailable()
+                store.startSyncSession(force: true, refreshImages: true)
+            }
+            .onChange(of: workspaceStore.enabledModuleCodes) { _, _ in
+                ensureSelectedTabIsAvailable()
             }
             .environmentObject(store)
             .environmentObject(locationManager)
+            .environmentObject(authStore)
+            .environmentObject(workspaceStore)
         }
         #elseif os(macOS)
         WindowGroup {
-            JardinForetMacRootView()
-                .environmentObject(store)
-                .environmentObject(locationManager)
+            Group {
+                if authStore.isAuthenticated {
+                    JardinForetMacRootView()
+                } else {
+                    LoginView()
+                }
+            }
+            .onOpenURL { url in
+                guard let client = CanopySupabaseClientProvider.shared else { return }
+                client.auth.handle(url)
+            }
+            .task {
+                if authStore.isAuthenticated {
+                    await workspaceStore.refresh()
+                    if workspaceStore.selectedSiteID != nil {
+                        store.startSyncSession(force: true, refreshImages: true)
+                    }
+                }
+            }
+            .onChange(of: authStore.isAuthenticated) { _, isAuthenticated in
+                if isAuthenticated {
+                    Task {
+                        await workspaceStore.refresh()
+                        if workspaceStore.selectedSiteID != nil {
+                            store.startSyncSession(force: true, refreshImages: true)
+                        }
+                    }
+                }
+            }
+            .onChange(of: workspaceStore.selectedSiteID) { _, siteID in
+                guard authStore.isAuthenticated, siteID != nil else { return }
+                store.startSyncSession(force: true, refreshImages: true)
+            }
+            .environmentObject(store)
+            .environmentObject(locationManager)
+            .environmentObject(authStore)
+            .environmentObject(workspaceStore)
         }
         .windowStyle(HiddenTitleBarWindowStyle())
         .windowToolbarStyle(UnifiedCompactWindowToolbarStyle())
         .defaultSize(CGSize(width: 1400, height: 900))
         #endif
+    }
+
+    private func ensureSelectedTabIsAvailable() {
+        let availableTabs = makeAvailableTabs()
+        if !availableTabs.contains(selectedTab) {
+            selectedTab = availableTabs.first ?? .account
+        }
+    }
+
+    private func makeAvailableTabs() -> [IOSTab] {
+        var tabs: [IOSTab] = [.home]
+
+        if workspaceStore.isModuleEnabled("plants") {
+            tabs.append(.plants)
+            tabs.append(.species)
+        }
+
+        if workspaceStore.isModuleEnabled("cartography_gis") {
+            tabs.append(.map)
+        }
+
+        if workspaceStore.isModuleEnabled("hives") {
+            tabs.append(.hives)
+            tabs.append(.colonies)
+        }
+
+        if workspaceStore.isModuleEnabled("plantnet") {
+            tabs.append(.identifier)
+        }
+
+        if workspaceStore.isModuleEnabled("ar_gps") {
+            tabs.append(.vr)
+        }
+
+        tabs.append(.account)
+        return tabs
     }
 }
 

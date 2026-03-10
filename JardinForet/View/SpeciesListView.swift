@@ -31,13 +31,15 @@ struct SpeciesListView: View {
         )
         .navigationTitle("Espèces")
         .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    showingCreateSpeciesForm = true
-                } label: {
-                    Image(systemName: "plus")
+            if store.canMutateSpeciesAndIndividuals {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showingCreateSpeciesForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Ajouter une espèce")
                 }
-                .accessibilityLabel("Ajouter une espèce")
             }
         }
         .sheet(isPresented: $showingCreateSpeciesForm) {
@@ -54,25 +56,27 @@ struct SpeciesListView: View {
         )
         .navigationTitle("Espèces")
         .toolbar {
+            if store.canMutateSpeciesAndIndividuals {
 #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showingCreateSpeciesForm = true
-                } label: {
-                    Image(systemName: "plus")
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showingCreateSpeciesForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Ajouter une espèce")
                 }
-                .accessibilityLabel("Ajouter une espèce")
-            }
 #else
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    showingCreateSpeciesForm = true
-                } label: {
-                    Image(systemName: "plus")
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showingCreateSpeciesForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Ajouter une espèce")
                 }
-                .accessibilityLabel("Ajouter une espèce")
-            }
 #endif
+            }
         }
         .sheet(isPresented: $showingCreateSpeciesForm) {
             NavigationStack {
