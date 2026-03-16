@@ -238,11 +238,10 @@ final class CanopyStore: ObservableObject {
             return coordinate
         }
 
-        if let coordinate = plants.first(where: { $0.lat != nil && $0.lon != nil }).flatMap({
-            guard let lat = $0.lat, let lon = $0.lon else { return nil }
+        if let plant = plants.first(where: { $0.lat != nil && $0.lon != nil }),
+           let lat = plant.lat,
+           let lon = plant.lon {
             return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        }) {
-            return coordinate
         }
 
         return MapVisibilityDefaults.fallbackCoordinate
