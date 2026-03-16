@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import GRDB
 
 // MARK: - Supabase DTO (remote table truth)
@@ -1195,6 +1196,7 @@ extension DBPlant {
             id: Int(id ?? 0),
             uuid: uuid,
             speciesID: Int(speciesId),
+            siteIlotID: nil,
             label: label,
             lat: lat,
             lon: lon,
@@ -1278,6 +1280,7 @@ struct GardenPlant: Identifiable, Hashable {
     let id: Int
     let uuid: String?
     let speciesID: Int
+    let siteIlotID: String?
     let label: String?
     let lat: Double?
     let lon: Double?
@@ -1346,6 +1349,32 @@ struct GardenPlant: Identifiable, Hashable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
+}
+
+struct GardenCoordinate: Hashable, Codable {
+    let latitude: Double
+    let longitude: Double
+
+    var clLocationCoordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+struct GardenSiteIlot: Identifiable, Hashable {
+    let id: String
+    let siteID: String
+    let code: String
+    let name: String?
+    let polygons: [[GardenCoordinate]]
+    let centroid: GardenCoordinate?
+    let areaM2: Double?
+    let sunExposure: String?
+    let humidityProfile: String?
+    let pedology: String?
+    let slopePct: Double?
+    let aspect: String?
+    let windExposure: String?
+    let notes: String?
 }
 
 enum GardenTaxonKind: String, Hashable {

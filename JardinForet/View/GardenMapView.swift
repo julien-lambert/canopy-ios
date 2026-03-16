@@ -453,10 +453,18 @@ struct GardenMapView: View {
 
             didSetInitialCamera = true
 
-            // Puis chargement des overlays et des pins
-            loadTerrainOverlay()
-            loadIlotsOverlay()
+            // Puis chargement des overlays et des pins depuis le store local synchronisé.
+            syncOverlaysFromStore()
             reloadPins()
+        }
+        .onReceive(store.$plants) { _ in
+            reloadPins()
+        }
+        .onReceive(store.$mapTerrainPolygons) { _ in
+            syncOverlaysFromStore()
+        }
+        .onReceive(store.$mapIlotPolygons) { _ in
+            syncOverlaysFromStore()
         }
         .navigationTitle("Carte du jardin")
 #if os(iOS)
@@ -507,70 +515,20 @@ struct GardenMapView: View {
     }
     
 
-    // MARK: - Chargement du GeoJSON ilots.geojson
+    private func syncOverlaysFromStore() {
+        loadTerrainOverlay()
+        loadIlotsOverlay()
+    }
+
+    // MARK: - Chargement des overlays synchronisés
 
     private func loadIlotsOverlay() {
-        guard let url = Bundle.main.url(forResource: "ilots_wgs84", withExtension: "geojson") else {
-            AppLog.warning("ilots_wgs84.geojson introuvable dans le bundle", category: .map)
-            return
-        }
+        let polygons = store.mapIlotPolygons
+        ilotPolygons = polygons
 
-        do {
-            let data = try Data(contentsOf: url)
-            AppLog.debug("ilots.geojson charge (\(data.count) octets)", category: .map)
-
-            let decoder = MKGeoJSONDecoder()
-            let objects = try decoder.decode(data)
-            AppLog.debug("MKGeoJSONDecoder ilots: \(objects.count) objets", category: .map)
-
-            var polys: [[CLLocationCoordinate2D]] = []
-
-            for object in objects {
-                guard let feature = object as? MKGeoJSONFeature else { continue }
-
-                for geom in feature.geometry {
-
-                    if let multi = geom as? MKMultiPolygon {
-                        AppLog.debug("[ilots] MultiPolygon: \(multi.polygons.count) polygones", category: .map)
-                        for poly in multi.polygons {
-                            let coords = poly.coordinatesArray
-                            AppLog.debug("[ilots] polygon: \(coords.count) points", category: .map)
-                            if !coords.isEmpty {
-                                polys.append(coords)
-                            }
-                        }
-                        continue
-                    }
-
-                    if let poly = geom as? MKPolygon {
-                        let coords = poly.coordinatesArray
-                        AppLog.debug("[ilots] Polygon: \(coords.count) points", category: .map)
-                        if !coords.isEmpty {
-                            polys.append(coords)
-                        }
-                        continue
-                    }
-
-                    if let line = geom as? MKPolyline {
-                        let coords = line.coordinatesArray
-                        AppLog.debug("[ilots] Polyline: \(coords.count) points", category: .map)
-                        if !coords.isEmpty {
-                            polys.append(coords)
-                        }
-                        continue
-                    }
-                }
-            }
-
-            AppLog.info("[ilots] polygones/segments extraits: \(polys.count)", category: .map)
-            if let first = polys.first, let firstCoord = first.first {
-                AppLog.debug("[ilots] premier point: lat=\(firstCoord.latitude), lon=\(firstCoord.longitude)", category: .map)
-            }
-
-            ilotPolygons = polys
-
-        } catch {
-            AppLog.warning("Erreur de decodage ilots.geojson: \(error)", category: .map)
+        AppLog.info("[ilots] polygones synchronisés: \(polygons.count)", category: .map)
+        if let first = polygons.first, let firstCoord = first.first {
+            AppLog.debug("[ilots] premier point sync: lat=\(firstCoord.latitude), lon=\(firstCoord.longitude)", category: .map)
         }
     }
     // MARK: - Extracted map layers (compiler-friendly)
@@ -1010,90 +968,25 @@ struct GardenMapView: View {
         }
     }
 
-    // MARK: - Chargement du GeoJSON terrain.geojson
-
     private func loadTerrainOverlay() {
-        guard let url = Bundle.main.url(forResource: "terrain", withExtension: "geojson") else {
-            AppLog.warning("terrain.geojson introuvable dans le bundle", category: .map)
-            return
+        let polygons = store.mapTerrainPolygons
+        terrainPolygons = polygons
+
+        AppLog.info("terrain polygones synchronisés: \(polygons.count)", category: .map)
+        if let first = polygons.first, let firstCoord = first.first {
+            AppLog.debug("terrain premier point sync: lat=\(firstCoord.latitude), lon=\(firstCoord.longitude)", category: .map)
         }
 
-        do {
-            let data = try Data(contentsOf: url)
-            AppLog.debug("terrain.geojson charge (\(data.count) octets)", category: .map)
-
-            let decoder = MKGeoJSONDecoder()
-            let objects = try decoder.decode(data)
-            AppLog.debug("MKGeoJSONDecoder terrain: \(objects.count) objets", category: .map)
-
-            // On construit TOUT dans polys, puis on assigne terrainPolygons UNE FOIS
-            var polys: [[CLLocationCoordinate2D]] = []
-
-            for object in objects {
-                guard let feature = object as? MKGeoJSONFeature else { continue }
-
-                for geom in feature.geometry {
-
-                    // ---- MultiPolygon ----
-                    if let multi = geom as? MKMultiPolygon {
-                        AppLog.debug("terrain MultiPolygon: \(multi.polygons.count) polygones", category: .map)
-                        for poly in multi.polygons {
-                            let coords = poly.coordinatesArray
-                            AppLog.debug("terrain polygon: \(coords.count) points", category: .map)
-                            if !coords.isEmpty {
-                                polys.append(coords)
-                            }
-                        }
-                        continue
-                    }
-
-                    // ---- Polygon ----
-                    if let poly = geom as? MKPolygon {
-                        let coords = poly.coordinatesArray
-                        AppLog.debug("terrain Polygon: \(coords.count) points", category: .map)
-                        if !coords.isEmpty {
-                            polys.append(coords)
-                        }
-                        continue
-                    }
-
-                    // ---- Polyline ----
-                    if let line = geom as? MKPolyline {
-                        let coords = line.coordinatesArray
-                        AppLog.debug("terrain Polyline: \(coords.count) points", category: .map)
-                        if !coords.isEmpty {
-                            polys.append(coords)
-                        }
-                        continue
-                    }
-                }
+        if !didSetInitialCamera {
+            if !pins.isEmpty {
+                let coords = pins.map { $0.coordinate }
+                cameraPosition = .region(regionForCoordinates(coords))
+                didSetInitialCamera = true
+            } else if let firstPoly = polygons.first {
+                let region = regionForCoordinates(firstPoly)
+                cameraPosition = .region(region)
+                didSetInitialCamera = true
             }
-
-            AppLog.info("terrain polygones/segments extraits: \(polys.count)", category: .map)
-            if let first = polys.first, let firstCoord = first.first {
-                AppLog.debug("terrain premier point: lat=\(firstCoord.latitude), lon=\(firstCoord.longitude)", category: .map)
-            }
-
-            // On assigne une seule fois au state SwiftUI
-            terrainPolygons = polys
-
-            // Réglage de la caméra si elle ne l’a pas encore été
-            if !didSetInitialCamera {
-                if !pins.isEmpty {
-                    // On a déjà des plantes : priorité à leur nuage de points
-                    let coords = pins.map { $0.coordinate }
-                    cameraPosition = .region(regionForCoordinates(coords))
-                    didSetInitialCamera = true
-                } else if let firstPoly = polys.first {
-                    // Sinon, on centre sur le premier polygone de terrain
-                    let region = regionForCoordinates(firstPoly)
-                    cameraPosition = .region(region)
-                    didSetInitialCamera = true
-                }
-            }
-
-        } catch {
-            AppLog.warning("Erreur de decodage terrain.geojson: \(error)", category: .map)
         }
     }
 

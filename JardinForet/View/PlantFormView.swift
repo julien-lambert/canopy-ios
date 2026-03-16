@@ -670,6 +670,7 @@ struct PlantFormView: View {
 // MARK: - Carte de sélection des coordonnées
 
 struct CoordinatePickerView: View {
+    @EnvironmentObject var store: CanopyStore
     @Binding var latitudeText: String
     @Binding var longitudeText: String
 
@@ -693,7 +694,11 @@ struct CoordinatePickerView: View {
         VStack(spacing: 0) {
             ZStack {
                 #if canImport(UIKit)
-                CoordinatePickerMap(region: $region)
+                CoordinatePickerMap(
+                    region: $region,
+                    terrainPolygons: store.mapTerrainPolygons,
+                    ilotPolygons: store.mapIlotPolygons
+                )
                     .ignoresSafeArea(edges: .top)
                 #else
                 Map(coordinateRegion: $region)
@@ -727,6 +732,12 @@ struct CoordinatePickerView: View {
             Spacer()
         }
         .navigationTitle("Positionner l’individu")
+        .onAppear {
+            let latIsEmpty = latitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let lonIsEmpty = longitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard latIsEmpty, lonIsEmpty else { return }
+            region.center = store.preferredTerrainCoordinate
+        }
     }
 }
 
@@ -737,6 +748,8 @@ struct CoordinatePickerView: View {
 #if canImport(UIKit)
 struct CoordinatePickerMap: UIViewRepresentable {
     @Binding var region: MKCoordinateRegion
+    let terrainPolygons: [[CLLocationCoordinate2D]]
+    let ilotPolygons: [[CLLocationCoordinate2D]]
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -753,64 +766,81 @@ struct CoordinatePickerMap: UIViewRepresentable {
         mapView.pointOfInterestFilter = .excludingAll
         mapView.isRotateEnabled = false
 
-        // Chargement des îlots depuis le bundle
-        if let url = Bundle.main.url(forResource: "ilots_wgs84", withExtension: "geojson") {
-            do {
-                let data = try Data(contentsOf: url)
-                let decoder = MKGeoJSONDecoder()
-                let objects = try decoder.decode(data)
-
-                var overlays: [MKOverlay] = []
-
-                for object in objects {
-                    guard let feature = object as? MKGeoJSONFeature else { continue }
-                    for geom in feature.geometry {
-                        if let polygon = geom as? MKPolygon {
-                            overlays.append(polygon)
-                        } else if let multi = geom as? MKMultiPolygon {
-                            overlays.append(multi)
-                        }
-                    }
-                }
-
-                mapView.addOverlays(overlays)
-
-                if !overlays.isEmpty {
-                    let rect = overlays.reduce(MKMapRect.null) { partial, overlay in
-                        if partial.isNull {
-                            return overlay.boundingMapRect
-                        } else {
-                            return partial.union(overlay.boundingMapRect)
-                        }
-                    }
-                    // On garde un zoom serré sur les îlots, sans écraser la région initiale si elle est loin
-                    if rect.size.width > 0 && rect.size.height > 0 {
-                        mapView.setVisibleMapRect(rect, edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40), animated: false)
-                    }
-                }
-
-            } catch {
-                AppLog.error("Erreur chargement ilots_wgs84.geojson: \(error)", category: .map)
-            }
-        } else {
-            AppLog.warning("Fichier ilots_wgs84.geojson introuvable dans le bundle", category: .map)
-        }
+        context.coordinator.syncOverlays(
+            on: mapView,
+            terrainPolygons: terrainPolygons,
+            ilotPolygons: ilotPolygons,
+            fitVisibleRect: true
+        )
 
         return mapView
     }
 
     func updateUIView(_ uiView: MKMapView, context: Context) {
-        // Ici, on laisse la carte être pilotée essentiellement par l’utilisateur.
-        // Si plus tard tu veux recadrer depuis l’extérieur, tu pourras adapter.
+        context.coordinator.syncOverlays(
+            on: uiView,
+            terrainPolygons: terrainPolygons,
+            ilotPolygons: ilotPolygons,
+            fitVisibleRect: false
+        )
     }
 
     // MARK: - Coordinator
 
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: CoordinatePickerMap
+        private var lastOverlaySignature: String?
 
         init(_ parent: CoordinatePickerMap) {
             self.parent = parent
+        }
+
+        func syncOverlays(
+            on mapView: MKMapView,
+            terrainPolygons: [[CLLocationCoordinate2D]],
+            ilotPolygons: [[CLLocationCoordinate2D]],
+            fitVisibleRect: Bool
+        ) {
+            let signature = overlaySignature(terrainPolygons: terrainPolygons, ilotPolygons: ilotPolygons)
+            guard signature != lastOverlaySignature else { return }
+            lastOverlaySignature = signature
+
+            mapView.removeOverlays(mapView.overlays)
+
+            let terrainOverlays = terrainPolygons.compactMap { coordinates -> MKPolygon? in
+                guard coordinates.count >= 3 else { return nil }
+                return MKPolygon(coordinates: coordinates, count: coordinates.count)
+            }
+
+            let ilotOverlays = ilotPolygons.compactMap { coordinates -> MKPolygon? in
+                guard coordinates.count >= 3 else { return nil }
+                return MKPolygon(coordinates: coordinates, count: coordinates.count)
+            }
+
+            let overlays = terrainOverlays + ilotOverlays
+            mapView.addOverlays(overlays)
+
+            guard fitVisibleRect, !overlays.isEmpty else { return }
+
+            let rect = overlays.reduce(MKMapRect.null) { partial, overlay in
+                partial.isNull ? overlay.boundingMapRect : partial.union(overlay.boundingMapRect)
+            }
+            if rect.size.width > 0 && rect.size.height > 0 {
+                mapView.setVisibleMapRect(
+                    rect,
+                    edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40),
+                    animated: false
+                )
+            }
+        }
+
+        private func overlaySignature(
+            terrainPolygons: [[CLLocationCoordinate2D]],
+            ilotPolygons: [[CLLocationCoordinate2D]]
+        ) -> String {
+            let terrainPoints = terrainPolygons.reduce(into: 0) { $0 += $1.count }
+            let ilotPoints = ilotPolygons.reduce(into: 0) { $0 += $1.count }
+            return "\(terrainPolygons.count)-\(terrainPoints)-\(ilotPolygons.count)-\(ilotPoints)"
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {

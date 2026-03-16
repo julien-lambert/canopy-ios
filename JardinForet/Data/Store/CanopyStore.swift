@@ -17,6 +17,9 @@ final class CanopyStore: ObservableObject {
 
     @Published var plants: [GardenPlant] = []
     @Published var species: [GardenTaxon] = []
+    @Published private(set) var siteIlots: [GardenSiteIlot] = []
+    @Published private(set) var mapTerrainPolygons: [[CLLocationCoordinate2D]] = []
+    @Published private(set) var mapIlotPolygons: [[CLLocationCoordinate2D]] = []
     @Published private(set) var isSyncing = false
     @Published private(set) var lastSyncDate: Date?
     @Published private(set) var lastSyncMessage: String?
@@ -32,6 +35,10 @@ final class CanopyStore: ObservableObject {
 
     /// Cultivar mutations are available on the local Canopy projection.
     var canMutateCultivars: Bool { localDB != nil }
+
+    var preferredTerrainCoordinate: CLLocationCoordinate2D {
+        terrainDefaultCoordinate()
+    }
 
     init() {
         self.localDB = try? CanopyLocalDatabase()
@@ -67,6 +74,13 @@ final class CanopyStore: ObservableObject {
             let speciesRecords = try localDB.fetchSpeciesPrivateActive(siteID: siteID)
             let cultivarRecords = try localDB.fetchCultivarsActive(siteID: siteID)
             let individualRecords = try localDB.fetchIndividualsActive(siteID: siteID)
+            let siteRecord: CanopyLocalSiteRecord?
+            if let siteID, !siteID.isEmpty {
+                siteRecord = try localDB.fetchSiteRecord(remoteID: siteID)
+            } else {
+                siteRecord = nil
+            }
+            let siteIlotRecords = try localDB.fetchSiteIlotsActive(siteID: siteID)
             let localSpecies = CanopyUIAdapters.toGardenTaxa(
                 speciesRecords: speciesRecords,
                 cultivarRecords: cultivarRecords,
@@ -77,9 +91,19 @@ final class CanopyStore: ObservableObject {
                 speciesRecords: speciesRecords,
                 cultivarRecords: cultivarRecords
             )
+            let localSiteIlots = siteIlotRecords.map(Self.makeGardenSiteIlot)
+            let terrainPolygons = Self.geometryPolygons(from: siteRecord?.geomJSON)
+            let ilotPolygons = localSiteIlots.flatMap { ilot in
+                ilot.polygons.map { polygon in
+                    polygon.map(\.clLocationCoordinate)
+                }
+            }
 
             species = localSpecies
             plants = localPlants
+            siteIlots = localSiteIlots
+            mapTerrainPolygons = terrainPolygons
+            mapIlotPolygons = ilotPolygons
             return true
         } catch {
             AppLog.error("loadLocalSnapshot: \(error)", category: .database)
@@ -100,6 +124,9 @@ final class CanopyStore: ObservableObject {
         } else {
             AppLog.warning("loadLocalData: snapshot local indisponible", category: .sync)
             plants = []
+            siteIlots = []
+            mapTerrainPolygons = []
+            mapIlotPolygons = []
         }
     }
 
@@ -223,7 +250,9 @@ final class CanopyStore: ObservableObject {
             return true
         }
         return MapVisibilityDefaults.shouldSnapToTerrain(
-            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+            terrainPolygons: mapTerrainPolygons,
+            ilotPolygons: mapIlotPolygons
         )
     }
 
@@ -236,7 +265,11 @@ final class CanopyStore: ObservableObject {
     }
 
     private func terrainDefaultCoordinate() -> CLLocationCoordinate2D {
-        if let coordinate = MapVisibilityDefaults.terrainCentroid {
+        if let coordinate = MapVisibilityDefaults.centroid(of: mapTerrainPolygons) {
+            return coordinate
+        }
+
+        if let coordinate = MapVisibilityDefaults.centroid(of: mapIlotPolygons) {
             return coordinate
         }
 
@@ -825,11 +858,69 @@ final class CanopyStore: ObservableObject {
         return object
     }
 
+    private func resolveLocalSiteIlotID(
+        siteID: String,
+        latitude: Double?,
+        longitude: Double?,
+        zone: String?,
+        localDB: CanopyLocalDatabase,
+        existing: CanopyLocalIndividualRecord?
+    ) throws -> String? {
+        let ilots = try localDB.fetchSiteIlotsActive(siteID: siteID)
+        guard !ilots.isEmpty else { return existing?.siteIlotID }
+
+        if let latitude, let longitude {
+            let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+
+            if let containing = ilots.first(where: { record in
+                let polygons = Self.geometryPolygons(from: record.geomJSON)
+                return polygons.contains { polygon in
+                    MapVisibilityDefaults.polygonContains(coordinate, polygon: polygon)
+                }
+            }) {
+                return containing.remoteID
+            }
+
+            let nearest = ilots.compactMap { record -> (String, Double)? in
+                guard let centroid = Self.centroidCoordinate(for: record) else { return nil }
+                let distance = MKMapPoint(coordinate).distance(to: MKMapPoint(centroid))
+                return (record.remoteID, distance)
+            }
+            .min(by: { $0.1 < $1.1 })
+
+            if let nearest {
+                return nearest.0
+            }
+        }
+
+        if let zone = nilIfEmpty(zone) {
+            let normalizedZone = zone
+                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                .lowercased()
+
+            if let matched = ilots.first(where: {
+                let code = $0.code.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
+                let name = ($0.name ?? "").folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
+                return code == normalizedZone || name == normalizedZone
+            }) {
+                return matched.remoteID
+            }
+        }
+
+        if let existingID = existing?.siteIlotID,
+           ilots.contains(where: { $0.remoteID == existingID }) {
+            return existingID
+        }
+
+        return ilots.first?.remoteID
+    }
+
     private func makeIndividualRow(
         remoteID: String,
         siteID: String,
         speciesPrivateID: String?,
         cultivarID: String?,
+        siteIlotID: String?,
         createdAt: String,
         updatedAt: String,
         deletedAt: String?,
@@ -851,6 +942,7 @@ final class CanopyStore: ObservableObject {
             CanopySchema.IndividualsFields.locationLat: jsonValue(input.latitude),
             CanopySchema.IndividualsFields.locationLng: jsonValue(input.longitude),
             CanopySchema.IndividualsFields.locationAlt: existing?.locationAlt.map(CanopyJSONValue.double) ?? .null,
+            CanopySchema.IndividualsFields.siteIlotId: siteIlotID.map(CanopyJSONValue.string) ?? .null,
             CanopySchema.IndividualsFields.heightCurrent: jsonValue(input.heightCurrent),
             CanopySchema.IndividualsFields.envergureCurrent: jsonValue(input.envergureCurrent),
             CanopySchema.IndividualsFields.zone: jsonValue(input.zone),
@@ -883,11 +975,20 @@ final class CanopyStore: ObservableObject {
             localDB: localDB,
             existing: nil
         )
+        let siteIlotID = try resolveLocalSiteIlotID(
+            siteID: siteID,
+            latitude: input.latitude,
+            longitude: input.longitude,
+            zone: input.zone,
+            localDB: localDB,
+            existing: nil
+        )
         let row = makeIndividualRow(
             remoteID: remoteID,
             siteID: siteID,
             speciesPrivateID: speciesRemoteID,
             cultivarID: cultivarRemoteID,
+            siteIlotID: siteIlotID,
             createdAt: now,
             updatedAt: now,
             deletedAt: nil,
@@ -921,6 +1022,14 @@ final class CanopyStore: ObservableObject {
             localDB: localDB,
             existing: existing
         )
+        let siteIlotID = try resolveLocalSiteIlotID(
+            siteID: siteID,
+            latitude: input.latitude,
+            longitude: input.longitude,
+            zone: input.zone,
+            localDB: localDB,
+            existing: existing
+        )
         let label = try generateAutomaticPlantLabel(
             speciesId: input.speciesId,
             varietyId: input.varietyId,
@@ -931,6 +1040,7 @@ final class CanopyStore: ObservableObject {
             siteID: siteID,
             speciesPrivateID: speciesRemoteID,
             cultivarID: cultivarRemoteID,
+            siteIlotID: siteIlotID,
             createdAt: existing?.createdAt ?? now,
             updatedAt: now,
             deletedAt: nil,
@@ -979,6 +1089,7 @@ final class CanopyStore: ObservableObject {
             siteID: siteID,
             speciesPrivateID: existing.speciesPrivateID,
             cultivarID: existing.cultivarID,
+            siteIlotID: existing.siteIlotID,
             createdAt: existing.createdAt,
             updatedAt: now,
             deletedAt: now,
@@ -1184,6 +1295,98 @@ final class CanopyStore: ObservableObject {
     }
 }
 
+private struct CanopyGeoJSONGeometry: Decodable {
+    let type: String
+    let coordinates: CanopyJSONValue
+}
+
+private extension CanopyStore {
+    static func makeGardenSiteIlot(from record: CanopyLocalSiteIlotRecord) -> GardenSiteIlot {
+        GardenSiteIlot(
+            id: record.remoteID,
+            siteID: record.siteID,
+            code: record.code,
+            name: record.name,
+            polygons: geometryPolygons(from: record.geomJSON).map { polygon in
+                polygon.map { coordinate in
+                    GardenCoordinate(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                }
+            },
+            centroid: centroidCoordinate(for: record).map {
+                GardenCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+            },
+            areaM2: record.areaM2,
+            sunExposure: record.sunExposure,
+            humidityProfile: record.humidityProfile,
+            pedology: record.pedology,
+            slopePct: record.slopePct,
+            aspect: record.aspect,
+            windExposure: record.windExposure,
+            notes: record.notes
+        )
+    }
+
+    static func centroidCoordinate(for record: CanopyLocalSiteIlotRecord) -> CLLocationCoordinate2D? {
+        if let lat = record.centroidLat, let lng = record.centroidLng {
+            return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+        }
+
+        guard
+            let raw = record.centroidJSON,
+            let data = raw.data(using: .utf8),
+            let geometry = try? JSONDecoder().decode(CanopyGeoJSONGeometry.self, from: data),
+            geometry.type.caseInsensitiveCompare("Point") == .orderedSame,
+            let coords = geometry.coordinates.arrayValue,
+            coords.count >= 2,
+            let lng = coords[0].doubleValue,
+            let lat = coords[1].doubleValue
+        else {
+            return nil
+        }
+
+        return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    }
+
+    static func geometryPolygons(from raw: String?) -> [[CLLocationCoordinate2D]] {
+        guard
+            let raw,
+            let data = raw.data(using: .utf8),
+            let geometry = try? JSONDecoder().decode(CanopyGeoJSONGeometry.self, from: data)
+        else {
+            return []
+        }
+
+        switch geometry.type.lowercased() {
+        case "polygon":
+            guard let polygonRings = geometry.coordinates.arrayValue else { return [] }
+            guard let outerRing = polygonRings.first?.arrayValue else { return [] }
+            let polygon = coordinates(from: outerRing)
+            return polygon.count >= 3 ? [polygon] : []
+
+        case "multipolygon":
+            guard let polygons = geometry.coordinates.arrayValue else { return [] }
+            return polygons.compactMap { polygonValue in
+                guard let polygonRings = polygonValue.arrayValue else { return nil }
+                guard let outerRing = polygonRings.first?.arrayValue else { return nil }
+                let polygon = coordinates(from: outerRing)
+                return polygon.count >= 3 ? polygon : nil
+            }
+
+        default:
+            return []
+        }
+    }
+
+    private static func coordinates(from values: [CanopyJSONValue]) -> [CLLocationCoordinate2D] {
+        values.compactMap { value in
+            guard let pair = value.arrayValue, pair.count >= 2 else { return nil }
+            guard let lng = pair[0].doubleValue, let lat = pair[1].doubleValue else { return nil }
+            let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+            return CLLocationCoordinate2DIsValid(coordinate) ? coordinate : nil
+        }
+    }
+}
+
 private enum MapVisibilityDefaults {
     static let defaultCanopyDiameterMeters: Double = 2.0
     static let fallbackCoordinate = CLLocationCoordinate2D(
@@ -1191,61 +1394,24 @@ private enum MapVisibilityDefaults {
         longitude: 4.0740432545957255
     )
 
-    static let terrainPolygons: [[CLLocationCoordinate2D]] = loadTerrainPolygons()
-    static let terrainCentroid: CLLocationCoordinate2D? = centroid(of: terrainPolygons)
-
-    static func shouldSnapToTerrain(coordinate: CLLocationCoordinate2D) -> Bool {
+    static func shouldSnapToTerrain(
+        coordinate: CLLocationCoordinate2D,
+        terrainPolygons: [[CLLocationCoordinate2D]],
+        ilotPolygons: [[CLLocationCoordinate2D]]
+    ) -> Bool {
         guard CLLocationCoordinate2DIsValid(coordinate) else {
             return true
         }
 
-        guard !terrainPolygons.isEmpty else {
+        let referencePolygons = !terrainPolygons.isEmpty ? terrainPolygons : ilotPolygons
+        guard !referencePolygons.isEmpty else {
             return false
         }
 
-        return !terrainPolygons.contains { polygonContains(coordinate, polygon: $0) }
+        return !referencePolygons.contains { polygonContains(coordinate, polygon: $0) }
     }
 
-    private static func loadTerrainPolygons() -> [[CLLocationCoordinate2D]] {
-        guard let url = Bundle.main.url(forResource: "terrain", withExtension: "geojson"),
-              let data = try? Data(contentsOf: url) else {
-            return []
-        }
-
-        let decoder = MKGeoJSONDecoder()
-        guard let objects = try? decoder.decode(data) else {
-            return []
-        }
-
-        var polygons: [[CLLocationCoordinate2D]] = []
-
-        for object in objects {
-            guard let feature = object as? MKGeoJSONFeature else { continue }
-
-            for geometry in feature.geometry {
-                if let multi = geometry as? MKMultiPolygon {
-                    for polygon in multi.polygons {
-                        let coordinates = polygon.coordinatesArrayForVisibilityDefaults
-                        if coordinates.count >= 3 {
-                            polygons.append(coordinates)
-                        }
-                    }
-                    continue
-                }
-
-                if let polygon = geometry as? MKPolygon {
-                    let coordinates = polygon.coordinatesArrayForVisibilityDefaults
-                    if coordinates.count >= 3 {
-                        polygons.append(coordinates)
-                    }
-                }
-            }
-        }
-
-        return polygons
-    }
-
-    private static func centroid(of polygons: [[CLLocationCoordinate2D]]) -> CLLocationCoordinate2D? {
+    static func centroid(of polygons: [[CLLocationCoordinate2D]]) -> CLLocationCoordinate2D? {
         let coordinates = polygons.flatMap { $0 }.filter { CLLocationCoordinate2DIsValid($0) }
         guard !coordinates.isEmpty else { return nil }
 
@@ -1254,7 +1420,7 @@ private enum MapVisibilityDefaults {
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
-    private static func polygonContains(_ coordinate: CLLocationCoordinate2D, polygon: [CLLocationCoordinate2D]) -> Bool {
+    static func polygonContains(_ coordinate: CLLocationCoordinate2D, polygon: [CLLocationCoordinate2D]) -> Bool {
         guard polygon.count >= 3 else { return false }
 
         var contains = false
@@ -1277,14 +1443,6 @@ private enum MapVisibilityDefaults {
         }
 
         return contains
-    }
-}
-
-private extension MKPolygon {
-    var coordinatesArrayForVisibilityDefaults: [CLLocationCoordinate2D] {
-        var coordinates = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: pointCount)
-        getCoordinates(&coordinates, range: NSRange(location: 0, length: pointCount))
-        return coordinates.filter { CLLocationCoordinate2DIsValid($0) }
     }
 }
 
@@ -1361,10 +1519,12 @@ extension CanopyStore {
                             """
                             PULL done in \(duration) ms \
                             site=\(summary.siteID) \
-                            species=\(summary.speciesCount) cultivars=\(summary.cultivarsCount) individuals=\(summary.individualsCount) \
+                            sites=\(summary.sitesCount) species=\(summary.speciesCount) cultivars=\(summary.cultivarsCount) individuals=\(summary.individualsCount) site_ilots=\(summary.siteIlotsCount) \
+                            max_sites=\(summary.sitesMaxUpdatedAt ?? "nil") \
                             max_species=\(summary.speciesMaxUpdatedAt ?? "nil") \
                             max_cultivars=\(summary.cultivarsMaxUpdatedAt ?? "nil") \
-                            max_individuals=\(summary.individualsMaxUpdatedAt ?? "nil")
+                            max_individuals=\(summary.individualsMaxUpdatedAt ?? "nil") \
+                            max_site_ilots=\(summary.siteIlotsMaxUpdatedAt ?? "nil")
                             """,
                             runID: runID
                         )

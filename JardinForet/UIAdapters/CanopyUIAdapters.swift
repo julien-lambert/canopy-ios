@@ -87,6 +87,7 @@ enum CanopyUIAdapters {
                     id: stableIntID(from: plant.remoteID),
                     uuid: plant.remoteID,
                     speciesID: species.map { stableIntID(from: $0.remoteID) } ?? 0,
+                    siteIlotID: plant.siteIlotID,
                     label: plant.label ?? plant.code,
                     lat: plant.locationLat,
                     lon: plant.locationLng,

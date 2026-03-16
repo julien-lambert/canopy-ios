@@ -114,6 +114,7 @@ enum CanopyLocalSchema {
                 table.column("location_lat", .double)
                 table.column("location_lng", .double)
                 table.column("location_alt", .double)
+                table.column("site_ilot_id", .text)
                 table.column("height_current", .double)
                 table.column("envergure_current", .double)
                 table.column("zone", .text)
@@ -199,6 +200,62 @@ enum CanopyLocalSchema {
             }
 
             try db.create(index: "idx_sync_outbox_status", on: syncOutboxTableName, columns: ["status"], ifNotExists: true)
+        }
+
+        migrator.registerMigration("local_0004_site_ilots") { db in
+            let individualColumns = try Set(db.columns(in: "individuals_local").map(\.name))
+
+            if !individualColumns.contains("site_ilot_id") {
+                try db.alter(table: "individuals_local") { table in
+                    table.add(column: "site_ilot_id", .text)
+                }
+            }
+
+            try db.create(table: "site_ilots_local", ifNotExists: true) { table in
+                table.autoIncrementedPrimaryKey("id")
+                table.column("remote_id", .text).notNull().unique(onConflict: .replace)
+                table.column("site_id", .text).notNull()
+                table.column("code", .text).notNull()
+                table.column("name", .text)
+                table.column("geom_json", .text)
+                table.column("centroid_json", .text)
+                table.column("centroid_lat", .double)
+                table.column("centroid_lng", .double)
+                table.column("area_m2", .double)
+                table.column("sun_exposure", .text)
+                table.column("humidity_profile", .text)
+                table.column("pedology", .text)
+                table.column("slope_pct", .double)
+                table.column("aspect", .text)
+                table.column("wind_exposure", .text)
+                table.column("notes", .text)
+                table.column("tags_json", .text)
+                table.column("metadata_json", .text)
+                table.column("created_at", .text).notNull()
+                table.column("updated_at", .text).notNull()
+                table.column("deleted_at", .text)
+            }
+
+            try db.create(index: "idx_site_ilots_local_site", on: "site_ilots_local", columns: ["site_id"], ifNotExists: true)
+            try db.create(index: "idx_site_ilots_local_code", on: "site_ilots_local", columns: ["site_id", "code"], ifNotExists: true)
+        }
+
+        migrator.registerMigration("local_0005_sites_cache") { db in
+            try db.create(table: "sites_local", ifNotExists: true) { table in
+                table.autoIncrementedPrimaryKey("id")
+                table.column("remote_id", .text).notNull().unique(onConflict: .replace)
+                table.column("name", .text).notNull()
+                table.column("slug", .text)
+                table.column("description", .text)
+                table.column("geom_json", .text)
+                table.column("settings_json", .text)
+                table.column("is_public", .integer)
+                table.column("created_at", .text).notNull()
+                table.column("updated_at", .text).notNull()
+                table.column("deleted_at", .text)
+            }
+
+            try db.create(index: "idx_sites_local_slug", on: "sites_local", columns: ["slug"], ifNotExists: true)
         }
 
         return migrator
@@ -334,6 +391,7 @@ struct CanopyLocalIndividualRecord: Codable, FetchableRecord, PersistableRecord 
     var locationLat: Double?
     var locationLng: Double?
     var locationAlt: Double?
+    var siteIlotID: String?
     var heightCurrent: Double?
     var envergureCurrent: Double?
     var zone: String?
@@ -359,12 +417,103 @@ struct CanopyLocalIndividualRecord: Codable, FetchableRecord, PersistableRecord 
         case locationLat = "location_lat"
         case locationLng = "location_lng"
         case locationAlt = "location_alt"
+        case siteIlotID = "site_ilot_id"
         case heightCurrent = "height_current"
         case envergureCurrent = "envergure_current"
         case zone
         case notes
         case tagsJSON = "tags_json"
         case metadataJSON = "metadata_json"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case deletedAt = "deleted_at"
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+struct CanopyLocalSiteIlotRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "site_ilots_local"
+
+    var id: Int64?
+    var remoteID: String
+    var siteID: String
+    var code: String
+    var name: String?
+    var geomJSON: String?
+    var centroidJSON: String?
+    var centroidLat: Double?
+    var centroidLng: Double?
+    var areaM2: Double?
+    var sunExposure: String?
+    var humidityProfile: String?
+    var pedology: String?
+    var slopePct: Double?
+    var aspect: String?
+    var windExposure: String?
+    var notes: String?
+    var tagsJSON: String?
+    var metadataJSON: String?
+    var createdAt: String
+    var updatedAt: String
+    var deletedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case remoteID = "remote_id"
+        case siteID = "site_id"
+        case code
+        case name
+        case geomJSON = "geom_json"
+        case centroidJSON = "centroid_json"
+        case centroidLat = "centroid_lat"
+        case centroidLng = "centroid_lng"
+        case areaM2 = "area_m2"
+        case sunExposure = "sun_exposure"
+        case humidityProfile = "humidity_profile"
+        case pedology
+        case slopePct = "slope_pct"
+        case aspect
+        case windExposure = "wind_exposure"
+        case notes
+        case tagsJSON = "tags_json"
+        case metadataJSON = "metadata_json"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case deletedAt = "deleted_at"
+    }
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+struct CanopyLocalSiteRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "sites_local"
+
+    var id: Int64?
+    var remoteID: String
+    var name: String
+    var slug: String?
+    var description: String?
+    var geomJSON: String?
+    var settingsJSON: String?
+    var isPublic: Bool?
+    var createdAt: String
+    var updatedAt: String
+    var deletedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case remoteID = "remote_id"
+        case name
+        case slug
+        case description
+        case geomJSON = "geom_json"
+        case settingsJSON = "settings_json"
+        case isPublic = "is_public"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case deletedAt = "deleted_at"

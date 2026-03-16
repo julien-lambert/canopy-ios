@@ -87,13 +87,18 @@ final class CanopyRemoteClient {
         }
     }
 
-    func fetchSites() async throws -> [CanopyDynamicRow] {
+    func fetchSites(siteID: UUID? = nil, since: String? = nil) async throws -> [CanopyDynamicRow] {
         let client = try await requireClientForSiteScopedQueries()
-        let rows: [CanopyDynamicRow] = try await client
+        var query = client
             .from(CanopySchema.Tables.sites)
             .select()
-            .execute()
-            .value
+        if let siteID {
+            query = query.eq(CanopySchema.SitesFields.id, value: siteID.uuidString)
+        }
+        if let since, !since.isEmpty {
+            query = query.gte(CanopySchema.SitesFields.updatedAt, value: since)
+        }
+        let rows: [CanopyDynamicRow] = try await query.execute().value
 
         return rows.filter { row in
             row[CanopySchema.SitesFields.deletedAt]?.stringValue == nil
@@ -193,6 +198,20 @@ final class CanopyRemoteClient {
 
         if let since, !since.isEmpty {
             query = query.gte(CanopySchema.CultivarsFields.updatedAt, value: since)
+        }
+
+        return try await query.execute().value
+    }
+
+    func fetchSiteIlots(siteID: UUID, since: String? = nil) async throws -> [CanopyDynamicRow] {
+        let client = try await requireClientForSiteScopedQueries()
+        var query = client
+            .from(CanopySchema.Tables.siteIlots)
+            .select()
+            .eq(CanopySchema.SiteIlotsFields.siteId, value: siteID.uuidString)
+
+        if let since, !since.isEmpty {
+            query = query.gte(CanopySchema.SiteIlotsFields.updatedAt, value: since)
         }
 
         return try await query.execute().value

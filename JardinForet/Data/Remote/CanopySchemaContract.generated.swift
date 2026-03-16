@@ -16,6 +16,8 @@ enum CanopySchema {
         static let individuals = "individuals"
         static let individualPhotos = "individual_photos"
         static let observations = "observations"
+        static let siteIlots = "site_ilots"
+        static let usageEvents = "usage_events"
         static let contentRepositories = "content_repositories"
         static let contentSources = "content_sources"
         static let mediationContent = "mediation_content"
@@ -175,6 +177,7 @@ enum CanopySchema {
         static let locationLat = "location_lat"
         static let locationLng = "location_lng"
         static let locationAlt = "location_alt"
+        static let siteIlotId = "site_ilot_id"
         static let heightCurrent = "height_current"
         static let envergureCurrent = "envergure_current"
         static let zone = "zone"
@@ -212,6 +215,42 @@ enum CanopySchema {
         static let createdAt = "created_at"
         static let updatedAt = "updated_at"
         static let deletedAt = "deleted_at"
+    }
+
+    enum SiteIlotsFields {
+        static let id = "id"
+        static let siteId = "site_id"
+        static let code = "code"
+        static let name = "name"
+        static let geom = "geom"
+        static let centroid = "centroid"
+        static let centroidLat = "centroid_lat"
+        static let centroidLng = "centroid_lng"
+        static let areaM2 = "area_m2"
+        static let sunExposure = "sun_exposure"
+        static let humidityProfile = "humidity_profile"
+        static let pedology = "pedology"
+        static let slopePct = "slope_pct"
+        static let aspect = "aspect"
+        static let windExposure = "wind_exposure"
+        static let notes = "notes"
+        static let tags = "tags"
+        static let metadata = "metadata"
+        static let createdAt = "created_at"
+        static let updatedAt = "updated_at"
+        static let deletedAt = "deleted_at"
+    }
+
+    enum UsageEventsFields {
+        static let id = "id"
+        static let userId = "user_id"
+        static let siteId = "site_id"
+        static let moduleCode = "module_code"
+        static let tokensIn = "tokens_in"
+        static let tokensOut = "tokens_out"
+        static let costEstimate = "cost_estimate"
+        static let apiResponseCode = "api_response_code"
+        static let createdAt = "created_at"
     }
 
     enum ContentRepositoriesFields {

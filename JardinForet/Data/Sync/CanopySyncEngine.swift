@@ -2,12 +2,16 @@ import Foundation
 
 struct CanopyPullSummary {
     let siteID: String
+    let sitesCount: Int
     let speciesCount: Int
     let cultivarsCount: Int
     let individualsCount: Int
+    let siteIlotsCount: Int
+    let sitesMaxUpdatedAt: String?
     let speciesMaxUpdatedAt: String?
     let cultivarsMaxUpdatedAt: String?
     let individualsMaxUpdatedAt: String?
+    let siteIlotsMaxUpdatedAt: String?
 }
 
 final class CanopySyncEngine {
@@ -17,6 +21,8 @@ final class CanopySyncEngine {
     private let speciesSyncKey = CanopySchema.Tables.speciesPrivate
     private let cultivarsSyncKey = CanopySchema.Tables.cultivars
     private let individualsSyncKey = CanopySchema.Tables.individuals
+    private let siteIlotsSyncKey = CanopySchema.Tables.siteIlots
+    private let sitesSyncKey = CanopySchema.Tables.sites
 
     init(
         remoteClient: CanopyRemoteClient = CanopyRemoteClient(),
@@ -44,19 +50,30 @@ final class CanopySyncEngine {
         let speciesSince = try localDB.lastSyncedAt(for: speciesSyncKey)
         let cultivarsSince = try localDB.lastSyncedAt(for: cultivarsSyncKey)
         let individualsSince = try localDB.lastSyncedAt(for: individualsSyncKey)
+        let siteIlotsSince = try localDB.lastSyncedAt(for: siteIlotsSyncKey)
+        let sitesSince = try localDB.lastSyncedAt(for: sitesSyncKey)
 
+        let siteRows = try await remoteClient.fetchSites(siteID: selected.siteID, since: sitesSince)
         let speciesRows = try await remoteClient.fetchSpeciesPrivate(siteID: selected.siteID, since: speciesSince)
         let cultivarRows = try await remoteClient.fetchCultivars(siteID: selected.siteID, since: cultivarsSince)
         let individualRows = try await remoteClient.fetchIndividuals(siteID: selected.siteID, since: individualsSince)
+        let siteIlotRows = try await remoteClient.fetchSiteIlots(siteID: selected.siteID, since: siteIlotsSince)
 
+        try localDB.upsertSitesRows(rows: siteRows)
         try localDB.upsertSpeciesPrivateRows(siteID: siteID, rows: speciesRows)
         try localDB.upsertCultivarsRows(siteID: siteID, rows: cultivarRows)
         try localDB.upsertIndividualsRows(siteID: siteID, rows: individualRows)
+        try localDB.upsertSiteIlotsRows(siteID: siteID, rows: siteIlotRows)
 
+        let sitesMax = maxUpdatedAt(in: siteRows, key: CanopySchema.SitesFields.updatedAt)
         let speciesMax = maxUpdatedAt(in: speciesRows, key: CanopySchema.SpeciesPrivateFields.updatedAt)
         let cultivarsMax = maxUpdatedAt(in: cultivarRows, key: CanopySchema.CultivarsFields.updatedAt)
         let individualsMax = maxUpdatedAt(in: individualRows, key: CanopySchema.IndividualsFields.updatedAt)
+        let siteIlotsMax = maxUpdatedAt(in: siteIlotRows, key: CanopySchema.SiteIlotsFields.updatedAt)
 
+        if sitesMax != nil {
+            try localDB.setLastSyncedAt(sitesMax, for: sitesSyncKey)
+        }
         if speciesMax != nil {
             try localDB.setLastSyncedAt(speciesMax, for: speciesSyncKey)
         }
@@ -66,15 +83,22 @@ final class CanopySyncEngine {
         if individualsMax != nil {
             try localDB.setLastSyncedAt(individualsMax, for: individualsSyncKey)
         }
+        if siteIlotsMax != nil {
+            try localDB.setLastSyncedAt(siteIlotsMax, for: siteIlotsSyncKey)
+        }
 
         return CanopyPullSummary(
             siteID: siteID,
+            sitesCount: siteRows.count,
             speciesCount: speciesRows.count,
             cultivarsCount: cultivarRows.count,
             individualsCount: individualRows.count,
+            siteIlotsCount: siteIlotRows.count,
+            sitesMaxUpdatedAt: sitesMax,
             speciesMaxUpdatedAt: speciesMax,
             cultivarsMaxUpdatedAt: cultivarsMax,
-            individualsMaxUpdatedAt: individualsMax
+            individualsMaxUpdatedAt: individualsMax,
+            siteIlotsMaxUpdatedAt: siteIlotsMax
         )
     }
 

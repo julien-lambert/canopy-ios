@@ -94,6 +94,27 @@ enum CanopyJSONValue: Codable {
         return nil
     }
 
+    var boolValue: Bool? {
+        switch self {
+        case .bool(let value):
+            return value
+        case .int(let value):
+            return value != 0
+        case .string(let value):
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            switch normalized {
+            case "true", "1", "yes", "oui":
+                return true
+            case "false", "0", "no", "non":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
     var arrayValue: [CanopyJSONValue]? {
         if case .array(let value) = self { return value }
         return nil

@@ -142,6 +142,49 @@ final class CanopyLocalDatabase {
         }
     }
 
+    func fetchSiteIlotsActive(siteID: String?) throws -> [CanopyLocalSiteIlotRecord] {
+        try dbPool.read { db in
+            if let siteID, !siteID.isEmpty {
+                return try CanopyLocalSiteIlotRecord.fetchAll(
+                    db,
+                    sql: """
+                      SELECT *
+                      FROM site_ilots_local
+                      WHERE site_id = ?
+                        AND deleted_at IS NULL
+                      ORDER BY code COLLATE NOCASE, remote_id COLLATE NOCASE
+                    """,
+                    arguments: [siteID]
+                )
+            }
+
+            return try CanopyLocalSiteIlotRecord.fetchAll(
+                db,
+                sql: """
+                  SELECT *
+                  FROM site_ilots_local
+                  WHERE deleted_at IS NULL
+                  ORDER BY code COLLATE NOCASE, remote_id COLLATE NOCASE
+                """
+            )
+        }
+    }
+
+    func fetchSiteRecord(remoteID: String) throws -> CanopyLocalSiteRecord? {
+        try dbPool.read { db in
+            try CanopyLocalSiteRecord.fetchOne(
+                db,
+                sql: """
+                  SELECT *
+                  FROM sites_local
+                  WHERE remote_id = ?
+                  LIMIT 1
+                """,
+                arguments: [remoteID]
+            )
+        }
+    }
+
     func fetchSpeciesPrivateRecord(remoteID: String) throws -> CanopyLocalSpeciesRecord? {
         try dbPool.read { db in
             try CanopyLocalSpeciesRecord.fetchOne(
@@ -465,6 +508,7 @@ final class CanopyLocalDatabase {
         let locationLatKey = CanopySchema.IndividualsFields.locationLat
         let locationLngKey = CanopySchema.IndividualsFields.locationLng
         let locationAltKey = CanopySchema.IndividualsFields.locationAlt
+        let siteIlotIDKey = CanopySchema.IndividualsFields.siteIlotId
         let heightCurrentKey = CanopySchema.IndividualsFields.heightCurrent
         let envergureCurrentKey = CanopySchema.IndividualsFields.envergureCurrent
         let zoneKey = CanopySchema.IndividualsFields.zone
@@ -501,6 +545,7 @@ final class CanopyLocalDatabase {
                         location_lat,
                         location_lng,
                         location_alt,
+                        site_ilot_id,
                         height_current,
                         envergure_current,
                         zone,
@@ -525,6 +570,7 @@ final class CanopyLocalDatabase {
                         location_lat = excluded.location_lat,
                         location_lng = excluded.location_lng,
                         location_alt = excluded.location_alt,
+                        site_ilot_id = excluded.site_ilot_id,
                         height_current = excluded.height_current,
                         envergure_current = excluded.envergure_current,
                         zone = excluded.zone,
@@ -549,6 +595,7 @@ final class CanopyLocalDatabase {
                         row[locationLatKey]?.doubleValue,
                         row[locationLngKey]?.doubleValue,
                         row[locationAltKey]?.doubleValue,
+                        row[siteIlotIDKey]?.stringValue,
                         row[heightCurrentKey]?.doubleValue,
                         row[envergureCurrentKey]?.doubleValue,
                         row[zoneKey]?.stringValue,
@@ -558,6 +605,187 @@ final class CanopyLocalDatabase {
                         createdAt,
                         updatedAt,
                         row[deletedAtKey]?.stringValue
+                    ]
+                )
+            }
+        }
+    }
+
+    func upsertSiteIlotsRows(siteID: String, rows: [CanopyDynamicRow]) throws {
+        guard !rows.isEmpty else { return }
+
+        let idKey = CanopySchema.SiteIlotsFields.id
+        let codeKey = CanopySchema.SiteIlotsFields.code
+        let nameKey = CanopySchema.SiteIlotsFields.name
+        let geomKey = CanopySchema.SiteIlotsFields.geom
+        let centroidKey = CanopySchema.SiteIlotsFields.centroid
+        let centroidLatKey = CanopySchema.SiteIlotsFields.centroidLat
+        let centroidLngKey = CanopySchema.SiteIlotsFields.centroidLng
+        let areaM2Key = CanopySchema.SiteIlotsFields.areaM2
+        let sunExposureKey = CanopySchema.SiteIlotsFields.sunExposure
+        let humidityProfileKey = CanopySchema.SiteIlotsFields.humidityProfile
+        let pedologyKey = CanopySchema.SiteIlotsFields.pedology
+        let slopePctKey = CanopySchema.SiteIlotsFields.slopePct
+        let aspectKey = CanopySchema.SiteIlotsFields.aspect
+        let windExposureKey = CanopySchema.SiteIlotsFields.windExposure
+        let notesKey = CanopySchema.SiteIlotsFields.notes
+        let tagsKey = CanopySchema.SiteIlotsFields.tags
+        let metadataKey = CanopySchema.SiteIlotsFields.metadata
+        let createdAtKey = CanopySchema.SiteIlotsFields.createdAt
+        let updatedAtKey = CanopySchema.SiteIlotsFields.updatedAt
+        let deletedAtKey = CanopySchema.SiteIlotsFields.deletedAt
+
+        try dbPool.write { db in
+            for row in rows {
+                guard let remoteID = row[idKey]?.stringValue else { continue }
+                guard let code = row[codeKey]?.stringValue, !code.isEmpty else { continue }
+
+                let geomJSON = jsonString(from: row[geomKey])
+                let centroidJSON = jsonString(from: row[centroidKey])
+                let tagsJSON = jsonString(from: row[tagsKey])
+                let metadataJSON = jsonString(from: row[metadataKey])
+                let now = nowISO8601()
+                let updatedAt = row[updatedAtKey]?.stringValue ?? now
+                let createdAt = row[createdAtKey]?.stringValue ?? updatedAt
+
+                try db.execute(
+                    sql: """
+                      INSERT INTO site_ilots_local(
+                        remote_id,
+                        site_id,
+                        code,
+                        name,
+                        geom_json,
+                        centroid_json,
+                        centroid_lat,
+                        centroid_lng,
+                        area_m2,
+                        sun_exposure,
+                        humidity_profile,
+                        pedology,
+                        slope_pct,
+                        aspect,
+                        wind_exposure,
+                        notes,
+                        tags_json,
+                        metadata_json,
+                        created_at,
+                        updated_at,
+                        deleted_at
+                      )
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ON CONFLICT(remote_id) DO UPDATE SET
+                        site_id = excluded.site_id,
+                        code = excluded.code,
+                        name = excluded.name,
+                        geom_json = excluded.geom_json,
+                        centroid_json = excluded.centroid_json,
+                        centroid_lat = excluded.centroid_lat,
+                        centroid_lng = excluded.centroid_lng,
+                        area_m2 = excluded.area_m2,
+                        sun_exposure = excluded.sun_exposure,
+                        humidity_profile = excluded.humidity_profile,
+                        pedology = excluded.pedology,
+                        slope_pct = excluded.slope_pct,
+                        aspect = excluded.aspect,
+                        wind_exposure = excluded.wind_exposure,
+                        notes = excluded.notes,
+                        tags_json = excluded.tags_json,
+                        metadata_json = excluded.metadata_json,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at,
+                        deleted_at = excluded.deleted_at
+                    """,
+                    arguments: [
+                        remoteID,
+                        siteID,
+                        code,
+                        row[nameKey]?.stringValue,
+                        geomJSON,
+                        centroidJSON,
+                        row[centroidLatKey]?.doubleValue,
+                        row[centroidLngKey]?.doubleValue,
+                        row[areaM2Key]?.doubleValue,
+                        row[sunExposureKey]?.stringValue,
+                        row[humidityProfileKey]?.stringValue,
+                        row[pedologyKey]?.stringValue,
+                        row[slopePctKey]?.doubleValue,
+                        row[aspectKey]?.stringValue,
+                        row[windExposureKey]?.stringValue,
+                        row[notesKey]?.stringValue,
+                        tagsJSON,
+                        metadataJSON,
+                        createdAt,
+                        updatedAt,
+                        row[deletedAtKey]?.stringValue,
+                    ]
+                )
+            }
+        }
+    }
+
+    func upsertSitesRows(rows: [CanopyDynamicRow]) throws {
+        guard !rows.isEmpty else { return }
+
+        let idKey = CanopySchema.SitesFields.id
+        let nameKey = CanopySchema.SitesFields.name
+        let slugKey = CanopySchema.SitesFields.slug
+        let descriptionKey = CanopySchema.SitesFields.description
+        let geomKey = CanopySchema.SitesFields.geom
+        let settingsKey = CanopySchema.SitesFields.settings
+        let isPublicKey = CanopySchema.SitesFields.isPublic
+        let createdAtKey = CanopySchema.SitesFields.createdAt
+        let updatedAtKey = CanopySchema.SitesFields.updatedAt
+        let deletedAtKey = CanopySchema.SitesFields.deletedAt
+
+        try dbPool.write { db in
+            for row in rows {
+                guard let remoteID = row[idKey]?.stringValue else { continue }
+                guard let name = row[nameKey]?.stringValue, !name.isEmpty else { continue }
+
+                let geomJSON = jsonString(from: row[geomKey])
+                let settingsJSON = jsonString(from: row[settingsKey])
+                let now = nowISO8601()
+                let updatedAt = row[updatedAtKey]?.stringValue ?? now
+                let createdAt = row[createdAtKey]?.stringValue ?? updatedAt
+
+                try db.execute(
+                    sql: """
+                      INSERT INTO sites_local(
+                        remote_id,
+                        name,
+                        slug,
+                        description,
+                        geom_json,
+                        settings_json,
+                        is_public,
+                        created_at,
+                        updated_at,
+                        deleted_at
+                      )
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      ON CONFLICT(remote_id) DO UPDATE SET
+                        name = excluded.name,
+                        slug = excluded.slug,
+                        description = excluded.description,
+                        geom_json = excluded.geom_json,
+                        settings_json = excluded.settings_json,
+                        is_public = excluded.is_public,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at,
+                        deleted_at = excluded.deleted_at
+                    """,
+                    arguments: [
+                        remoteID,
+                        name,
+                        row[slugKey]?.stringValue,
+                        row[descriptionKey]?.stringValue,
+                        geomJSON,
+                        settingsJSON,
+                        row[isPublicKey]?.boolValue.map { $0 ? 1 : 0 },
+                        createdAt,
+                        updatedAt,
+                        row[deletedAtKey]?.stringValue,
                     ]
                 )
             }
