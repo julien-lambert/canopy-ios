@@ -6,7 +6,7 @@ struct CultivarFormView: View {
         case edit(speciesId: Int, speciesName: String, cultivar: GardenTaxon)
     }
 
-    @EnvironmentObject private var store: GardenStore
+    @EnvironmentObject private var store: CanopyStore
     @Environment(\.dismiss) private var dismiss
 
     let mode: Mode
@@ -148,13 +148,6 @@ struct CultivarFormView: View {
                 TextField("Période de fructification", text: $fruitingPeriod)
             }
 
-            Section {
-                Button(modeButtonTitle) {
-                    save()
-                }
-                .fontWeight(.semibold)
-            }
-
             if case .edit(_, _, let cultivar) = mode {
                 Section {
                     Button(role: .destructive) {
@@ -177,6 +170,12 @@ struct CultivarFormView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
 #endif
+        .canopyEditorToolbar(
+            saveTitle: modeButtonTitle,
+            isSaveDisabled: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            onCancel: { dismiss() },
+            onSave: { save() }
+        )
         .alert("Impossible d'enregistrer", isPresented: $showErrorAlert) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -302,7 +301,7 @@ struct CultivarFormView: View {
         )
         switch mode {
         case .create(let speciesId, _):
-            success = store.createCultivar(speciesId: speciesId, input: writeInput)
+            success = store.createCultivar(speciesId: speciesId, input: writeInput) != nil
         case .edit(_, _, let cultivar):
             success = store.updateCultivar(id: cultivar.id, with: writeInput)
         }

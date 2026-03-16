@@ -10,10 +10,10 @@ import MapKit
 
 struct PlantFormView: View {
 
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
+    @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.dismiss) private var dismiss
 
-    /// Mode actuel : pour l’instant uniquement création
     enum Mode {
         case create
         case edit(plant: GardenPlant)
@@ -29,6 +29,8 @@ struct PlantFormView: View {
         _cultivarList = State(initialValue: [])
         _selectedCultivarId = State(initialValue: nil)
         _selectedSpeciesId = State(initialValue: nil)
+        _showQuickSpeciesCreator = State(initialValue: false)
+        _showQuickCultivarCreator = State(initialValue: false)
 
         // Valeurs par défaut des champs supplémentaires
         _microSite          = State(initialValue: "")
@@ -39,6 +41,7 @@ struct PlantFormView: View {
         _acquisitionSource  = State(initialValue: "")
         _careNotes          = State(initialValue: "")
         _heightCurrent      = State(initialValue: "")
+        _envergureCurrent   = State(initialValue: "")
 
         // Coordonnées GPS par défaut (non renseignées)
         _latitudeText  = State(initialValue: "")
@@ -49,12 +52,22 @@ struct PlantFormView: View {
             _label = State(initialValue: "")
             _zone  = State(initialValue: "")
             _notes = State(initialValue: "")
+            _showAdvancedFields = State(initialValue: false)
             // Les autres champs restent à "" (déjà initialisés plus haut)
 
         case .edit(let plant):
             _label = State(initialValue: plant.label ?? "")
             _zone  = State(initialValue: plant.zone  ?? "")
             _notes = State(initialValue: plant.notes ?? "")
+            _showAdvancedFields = State(
+                initialValue: [plant.microSite,
+                               plant.exposureLocal,
+                               plant.soilLocal,
+                               plant.acquisitionType,
+                               plant.acquisitionSource,
+                               plant.careNotes]
+                    .contains { ($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
+            )
 
             // Préremplissage des champs supplémentaires à partir de la plante existante
             _microSite         = State(initialValue: plant.microSite ?? "")
@@ -66,6 +79,15 @@ struct PlantFormView: View {
             _careNotes         = State(initialValue: plant.careNotes ?? "")
             if let h = plant.heightCurrent {
                 _heightCurrent = State(initialValue: String(h))
+            }
+            if let spread = plant.spreadCurrent {
+                _envergureCurrent = State(initialValue: String(spread))
+            }
+            if let lat = plant.lat {
+                _latitudeText = State(initialValue: String(lat))
+            }
+            if let lon = plant.lon {
+                _longitudeText = State(initialValue: String(lon))
             }
         }
     }
@@ -82,6 +104,9 @@ struct PlantFormView: View {
     @State private var label: String
     @State private var zone: String
     @State private var notes: String
+    @State private var showQuickSpeciesCreator: Bool
+    @State private var showQuickCultivarCreator: Bool
+    @State private var showAdvancedFields: Bool
 
     // Champs supplémentaires (pour enrichir le formulaire)
     @State private var microSite: String
@@ -92,6 +117,7 @@ struct PlantFormView: View {
     @State private var acquisitionSource: String
     @State private var careNotes: String
     @State private var heightCurrent: String
+    @State private var envergureCurrent: String
 
     // Position géographique (texte affiché dans le formulaire)
     @State private var latitudeText: String = ""
@@ -129,27 +155,18 @@ struct PlantFormView: View {
         Form {
             speciesSection
             cultivarSection
-            identitySection
-            locationSection
-            geoSection
-            growthSection
-            acquisitionSection
-            notesSection
+            terrainSection
+            measurementsSection
+            quickObservationSection
+            advancedSection
         }
         .navigationTitle(navigationTitle)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Annuler") {
-                    dismiss()
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Enregistrer") {
-                    save()
-                }
-                .disabled(!formIsValid)
-            }
-        }
+        .canopyEditorToolbar(
+            saveTitle: "Enregistrer",
+            isSaveDisabled: !formIsValid,
+            onCancel: { dismiss() },
+            onSave: { save() }
+        )
         .onAppear {
             loadSpecies()
             hydrateFromExistingIfNeeded()
@@ -163,6 +180,20 @@ struct PlantFormView: View {
         }
         .onChange(of: selectedCultivarId) { _, _ in
             refreshAutomaticLabel()
+        }
+        .sheet(isPresented: $showQuickSpeciesCreator) {
+            SpeciesQuickCreateView { newSpeciesID in
+                handleQuickSpeciesCreated(newSpeciesID)
+            }
+            .environmentObject(store)
+        }
+        .sheet(isPresented: $showQuickCultivarCreator) {
+            if let selectedSpecies {
+                CultivarQuickCreateView(species: selectedSpecies) { remoteID in
+                    handleQuickCultivarCreated(remoteID)
+                }
+                .environmentObject(store)
+            }
         }
 #if os(iOS)
         .scrollDismissesKeyboard(.interactively)
@@ -194,10 +225,23 @@ struct PlantFormView: View {
             }
 
             if store.canMutateSpeciesAndIndividuals {
-                NavigationLink {
-                    SpeciesFormView(existingSpecies: nil, cultivars: [])
+                Button {
+                    showQuickSpeciesCreator = true
                 } label: {
-                    Label("Créer une espèce", systemImage: "plus.circle")
+                    Label("Créer rapidement une espèce", systemImage: "plus.circle.fill")
+                }
+            }
+
+            if let selectedSpecies, !selectedSpecies.latinName.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(selectedSpecies.latinName)
+                        .font(.subheadline)
+                        .italic()
+                    if let family = selectedSpecies.family, !family.isEmpty {
+                        Text(family)
+                            .font(.caption)
+                            .foregroundColor(.textSecondary)
+                    }
                 }
             }
         }
@@ -223,100 +267,51 @@ struct PlantFormView: View {
 #endif
 
                 if let cultivar = selectedCultivar {
-                    LabeledContent("Origine", value: cultivar.origin ?? "—")
-                    LabeledContent("Type", value: cultivar.plantType ?? "—")
-                    LabeledContent("Mellifère", value: cultivar.melliferousLevel ?? "—")
-                    LabeledContent("Ornemental", value: cultivar.ornamentalInterest ?? "—")
-
-                    if cultivar.lifespanMin != nil || cultivar.lifespanMax != nil {
-                        let min = cultivar.lifespanMin.map(String.init) ?? "?"
-                        let max = cultivar.lifespanMax.map(String.init) ?? "?"
-                        LabeledContent("Longévité", value: "\(min) – \(max) ans")
-                    }
-
-                    if cultivar.heightMin != nil || cultivar.heightMax != nil {
-                        let min = cultivar.heightMin.map { String(format: "%.1f", $0) } ?? "?"
-                        let max = cultivar.heightMax.map { String(format: "%.1f", $0) } ?? "?"
-                        LabeledContent("Hauteur", value: "\(min) – \(max) m")
-                    }
-
-                    if let flowering = cultivar.floweringPeriod, !flowering.isEmpty {
-                        LabeledContent("Floraison", value: flowering)
-                    }
-                    if let fruiting = cultivar.fruitingPeriod, !fruiting.isEmpty {
-                        LabeledContent("Fructification", value: fruiting)
-                    }
+                    Text(cultivarFieldSummary(cultivar))
+                        .font(.footnote)
+                        .foregroundColor(.textSecondary)
                 }
             }
 
-            if store.canMutateCultivars, let selectedSpecies {
-                NavigationLink {
-                    CultivarFormView(
-                        mode: .create(
-                            speciesId: selectedSpecies.id,
-                            speciesName: selectedSpecies.commonName
-                        )
-                    )
+            if store.canMutateCultivars, selectedSpecies != nil {
+                Button {
+                    showQuickCultivarCreator = true
                 } label: {
-                    Label("Créer un cultivar", systemImage: "plus.circle")
+                    Label("Créer rapidement un cultivar", systemImage: "plus.circle.fill")
                 }
             }
         }
     }
 
-    private var identitySection: some View {
-        Section("Informations sur l’individu") {
-            TextField("Étiquette (générée automatiquement)", text: $label)
-                .disabled(true)
+    private var terrainSection: some View {
+        Section("Terrain") {
+            LabeledContent("Étiquette auto", value: label.isEmpty ? "—" : label)
 
-            Picker("Statut de l’individu", selection: $status) {
-                // Option vide = statut non renseigné
+            Picker("Statut", selection: $status) {
                 Text("Aucun").tag("")
-
                 ForEach(statusOptions, id: \.value) { option in
                     Text(option.label).tag(option.value)
                 }
             }
-        }
-    }
 
-    private var locationSection: some View {
-        Section("Localisation") {
             TextField("Zone / îlot", text: $zone)
-            TextField("Micro-site local", text: $microSite)
 
-            Picker("Exposition locale", selection: $exposureLocal) {
-                Text("Aucune").tag("")
-
-                ForEach(exposureOptions, id: \.value) { option in
-                    Text(option.label).tag(option.value)
+            if locationManager.location != nil {
+                Button {
+                    applyCurrentLocation()
+                } label: {
+                    Label(hasCoordinates ? "Actualiser avec ma position" : "Utiliser ma position actuelle",
+                          systemImage: "location.fill")
                 }
             }
 
-            TextField("Type de sol local", text: $soilLocal)
-        }
-    }
-
-    private var geoSection: some View {
-        Section("Position géographique") {
-            HStack {
-                Text("Latitude")
-                Spacer()
-                TextField("Latitude", text: $latitudeText)
-                    .multilineTextAlignment(.trailing)
-                    #if os(iOS)
-                    .keyboardType(.numbersAndPunctuation)
-                    #endif
-            }
-
-            HStack {
-                Text("Longitude")
-                Spacer()
-                TextField("Longitude", text: $longitudeText)
-                    .multilineTextAlignment(.trailing)
-                    #if os(iOS)
-                    .keyboardType(.numbersAndPunctuation)
-                    #endif
+            if hasCoordinates {
+                LabeledContent("Coordonnées", value: coordinatesSummary)
+                    .font(.footnote)
+            } else {
+                Text("Aucune coordonnée enregistrée pour cet individu.")
+                    .font(.footnote)
+                    .foregroundColor(.textSecondary)
             }
 
             NavigationLink("Placer / déplacer sur la carte") {
@@ -328,53 +323,137 @@ struct PlantFormView: View {
         }
     }
 
-    private var growthSection: some View {
-        Section("Croissance") {
+    private var measurementsSection: some View {
+        Section("Mesures du jour") {
             TextField("Hauteur actuelle (cm)", text: $heightCurrent)
+                #if os(iOS)
+                .keyboardType(.numbersAndPunctuation)
+                #endif
+
+            TextField("Envergure actuelle (m)", text: $envergureCurrent)
                 #if os(iOS)
                 .keyboardType(.numbersAndPunctuation)
                 #endif
         }
     }
 
-    private var acquisitionSection: some View {
-        Section("Acquisition & origine") {
-            Picker("Type d’acquisition", selection: $acquisitionType) {
-                Text("Aucun").tag("")
-
-                ForEach(acquisitionTypeOptions, id: \.value) { option in
-                    Text(option.label).tag(option.value)
-                }
-            }
-
-            TextField("Source / fournisseur", text: $acquisitionSource)
+    private var quickObservationSection: some View {
+        Section("Observation rapide") {
+            TextField("Note terrain", text: $notes, axis: .vertical)
+                .lineLimit(3...6)
         }
     }
 
-    private var notesSection: some View {
-        Section("Notes & entretien") {
-            TextField("Notes générales", text: $notes, axis: .vertical)
-                .lineLimit(3...6)
+    private var advancedSection: some View {
+        Section {
+            DisclosureGroup("Compléter la fiche", isExpanded: $showAdvancedFields) {
+                TextField("Micro-site local", text: $microSite)
 
-            TextField("Notes d’entretien (taille, protection…)", text: $careNotes, axis: .vertical)
-                .lineLimit(2...4)
+                Picker("Exposition locale", selection: $exposureLocal) {
+                    Text("Aucune").tag("")
+
+                    ForEach(exposureOptions, id: \.value) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+
+                TextField("Type de sol local", text: $soilLocal)
+
+                Picker("Type d’acquisition", selection: $acquisitionType) {
+                    Text("Aucun").tag("")
+
+                    ForEach(acquisitionTypeOptions, id: \.value) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+
+                TextField("Source / fournisseur", text: $acquisitionSource)
+
+                TextField("Notes d’entretien (taille, protection…)", text: $careNotes, axis: .vertical)
+                    .lineLimit(2...4)
+
+                TextField("Latitude", text: $latitudeText)
+                    #if os(iOS)
+                    .keyboardType(.numbersAndPunctuation)
+                    #endif
+
+                TextField("Longitude", text: $longitudeText)
+                    #if os(iOS)
+                    .keyboardType(.numbersAndPunctuation)
+                    #endif
+
+                Text("Les champs avancés servent à enrichir la fiche sans ralentir la saisie terrain.")
+                    .font(.footnote)
+                    .foregroundColor(.textSecondary)
+            }
+            .tint(.accentPrimary)
         }
     }
 
     // MARK: - Helpers
 
+    private var hasCoordinates: Bool {
+        !latitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !longitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var coordinatesSummary: String {
+        guard let latitude = Double(latitudeText.replacingOccurrences(of: ",", with: ".")),
+              let longitude = Double(longitudeText.replacingOccurrences(of: ",", with: ".")) else {
+            return "Coordonnées manuelles"
+        }
+        return String(format: "%.6f, %.6f", latitude, longitude)
+    }
+
+    private func cultivarFieldSummary(_ cultivar: GardenTaxon) -> String {
+        var parts: [String] = []
+        if let type = cultivar.plantType, !type.isEmpty {
+            parts.append(type)
+        }
+        if cultivar.heightMin != nil || cultivar.heightMax != nil {
+            let min = cultivar.heightMin.map { String(format: "%.1f", $0) } ?? "?"
+            let max = cultivar.heightMax.map { String(format: "%.1f", $0) } ?? "?"
+            parts.append("h. \(min)-\(max) m")
+        }
+        if let fruiting = cultivar.fruitingPeriod, !fruiting.isEmpty {
+            parts.append("fruits \(fruiting)")
+        }
+        return parts.isEmpty ? "Cultivar sélectionné pour cet individu." : parts.joined(separator: " • ")
+    }
+
+    private func applyCurrentLocation() {
+        guard let location = locationManager.location else { return }
+        latitudeText = String(format: "%.7f", location.coordinate.latitude)
+        longitudeText = String(format: "%.7f", location.coordinate.longitude)
+    }
+
+    private func handleQuickSpeciesCreated(_ newSpeciesID: Int) {
+        loadSpecies()
+        selectedSpeciesId = newSpeciesID
+        selectedCultivarId = nil
+        loadCultivarsForCurrentSpecies()
+        refreshAutomaticLabel()
+    }
+
+    private func handleQuickCultivarCreated(_ remoteID: String) {
+        loadCultivarsForCurrentSpecies()
+        if let match = cultivarList.first(where: { $0.uuid == remoteID }) {
+            selectedCultivarId = match.id
+        }
+        refreshAutomaticLabel()
+    }
+
     private var navigationTitle: String {
         switch mode {
         case .create:
-            return "Nouvelle plante"
+            return "Nouvel individu"
         case .edit(_):
-            return "Modifier la plante"
+            return "Modifier l’individu"
         }
     }
 
     /// Formulaire valide ?
     private var formIsValid: Bool {
-        // Pour l’instant : il faut au moins une espèce sélectionnée
         selectedSpeciesId != nil
     }
 
@@ -489,7 +568,7 @@ struct PlantFormView: View {
     private func hydrateFromExistingIfNeeded() {
         guard case .edit(let plant) = mode else { return }
 
-        // En v2 on privilégie l'identifiant stable de l'espèce de l'individu.
+        // On privilégie l'identifiant stable de l'espèce portée par l'individu.
         if let matchByID = speciesList.first(where: { $0.id == plant.speciesID }) {
             selectedSpeciesId = matchByID.id
         } else if let match = speciesList.first(where: { $0.latinName == plant.latinName }) {
@@ -555,6 +634,7 @@ struct PlantFormView: View {
         }
 
         let heightValue = parseDouble(heightCurrent)
+        let spreadValue = parseDouble(envergureCurrent)
         let latValue    = parseDouble(latitudeText)
         let lonValue    = parseDouble(longitudeText)
         let writeInput = PlantWriteInput(
@@ -570,6 +650,7 @@ struct PlantFormView: View {
             acquisitionSource: cleanAcqSrc.isEmpty ? nil : cleanAcqSrc,
             careNotes: cleanCare.isEmpty ? nil : cleanCare,
             heightCurrent: heightValue,
+            envergureCurrent: spreadValue,
             latitude: latValue,
             longitude: lonValue
         )

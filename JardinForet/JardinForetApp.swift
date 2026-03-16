@@ -14,14 +14,14 @@ struct JardinForetApp: App {
         case account
     }
 
-    @StateObject private var store: GardenStore
+    @StateObject private var store: CanopyStore
     @StateObject private var authStore = CanopyAuthStore()
     @StateObject private var workspaceStore = CanopyWorkspaceStore()
     @StateObject var locationManager = LocationManager()
     @State private var selectedTab: IOSTab = .home
 
     init() {
-        _store = StateObject(wrappedValue: GardenStore())
+        _store = StateObject(wrappedValue: CanopyStore())
     }
 
     var body: some Scene {
@@ -149,9 +149,6 @@ struct JardinForetApp: App {
                 if authStore.isAuthenticated {
                     await workspaceStore.refresh()
                     ensureSelectedTabIsAvailable()
-                    if workspaceStore.selectedSiteID != nil {
-                        store.startSyncSession(force: true, refreshImages: true)
-                    }
                 }
             }
             .onChange(of: authStore.isAuthenticated) { _, isAuthenticated in
@@ -159,9 +156,6 @@ struct JardinForetApp: App {
                     Task {
                         await workspaceStore.refresh()
                         ensureSelectedTabIsAvailable()
-                        if workspaceStore.selectedSiteID != nil {
-                            store.startSyncSession(force: true, refreshImages: true)
-                        }
                     }
                 } else {
                     selectedTab = .home
@@ -196,18 +190,12 @@ struct JardinForetApp: App {
             .task {
                 if authStore.isAuthenticated {
                     await workspaceStore.refresh()
-                    if workspaceStore.selectedSiteID != nil {
-                        store.startSyncSession(force: true, refreshImages: true)
-                    }
                 }
             }
             .onChange(of: authStore.isAuthenticated) { _, isAuthenticated in
                 if isAuthenticated {
                     Task {
                         await workspaceStore.refresh()
-                        if workspaceStore.selectedSiteID != nil {
-                            store.startSyncSession(force: true, refreshImages: true)
-                        }
                     }
                 }
             }
@@ -279,7 +267,7 @@ enum SidebarItem: Hashable {
 }
 
 struct JardinForetMacRootView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     @EnvironmentObject var locationManager: LocationManager
 
     @State private var selectedSidebar: SidebarItem? = .home

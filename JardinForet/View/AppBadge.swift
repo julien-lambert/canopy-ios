@@ -11,12 +11,12 @@ struct AppBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: style == .accent ? .bold : .semibold))
+            .font(.caption2.weight(style == .accent ? .bold : .semibold))
             .foregroundColor(style == .accent ? .white : .textPrimary)
             .lineLimit(1)
             .truncationMode(.tail)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, CanopySpacing.xs)
+            .padding(.vertical, CanopySpacing.xxs)
             .background(
                 Capsule()
                     .fill(style == .accent ? Color.accentPrimary : Color.cardBackground)
@@ -30,4 +30,3 @@ struct AppBadge: View {
             )
     }
 }
-

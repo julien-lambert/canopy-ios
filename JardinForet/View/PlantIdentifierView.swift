@@ -8,7 +8,7 @@ struct PlantIdentifierView: View {
         var organ: PlantNetService.Organ
     }
 
-    @EnvironmentObject private var store: GardenStore
+    @EnvironmentObject private var store: CanopyStore
     @EnvironmentObject private var locationManager: LocationManager
 
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
@@ -28,23 +28,18 @@ struct PlantIdentifierView: View {
     private let service = PlantNetService()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Identification PlantNet")
-                    .font(.title2.weight(.semibold))
-
-                Text("Ajoute plusieurs photos, précise l’organe pour chaque image, puis sélectionne une proposition à importer.")
-                    .font(.subheadline)
-                    .foregroundColor(.textSecondary)
-
+        CanopyScreen {
+            VStack(alignment: .leading, spacing: CanopySpacing.md) {
+                CanopySectionHeader(
+                    title: "Identification PlantNet",
+                    subtitle: "Ajoute plusieurs photos, précise l’organe pour chaque image, puis sélectionne une proposition à importer."
+                )
                 photosCard
                 actionsCard
                 resultCard
                 importCard
             }
-            .padding()
         }
-        .background(Color.appBackground.ignoresSafeArea())
         .navigationTitle("Identifier")
         .task(id: selectedPhotoItems) {
             await loadSelectedPhotos()
@@ -59,34 +54,23 @@ struct PlantIdentifierView: View {
     }
 
     private var photosCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Photos")
-                .font(.headline)
-
+        CanopyCard(title: "Photos", systemImage: "camera.macro") {
             if observations.isEmpty {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.listRowBackground)
-                    .frame(height: 180)
-                    .overlay(
-                        VStack(spacing: 8) {
-                            Image(systemName: "camera.macro")
-                                .font(.system(size: 28, weight: .medium))
-                                .foregroundColor(.textSecondary)
-                            Text("Aucune photo")
-                                .font(.subheadline)
-                                .foregroundColor(.textSecondary)
-                        }
-                    )
+                CanopyEmptyState(
+                    title: "Aucune photo",
+                    message: "Ajoute une ou plusieurs photos pour lancer l’identification.",
+                    systemImage: "camera.macro"
+                )
             } else {
                 ForEach($observations) { $observation in
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: CanopySpacing.xs) {
                         if let image = makeImage(from: observation.data) {
                             image
                                 .resizable()
                                 .scaledToFit()
                                 .frame(maxWidth: .infinity)
                                 .frame(maxHeight: 220)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .clipShape(RoundedRectangle(cornerRadius: CanopyCornerRadius.sm))
                         }
 
                         HStack {
@@ -106,33 +90,21 @@ struct PlantIdentifierView: View {
                             }
                         }
                     }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.listRowBackground)
-                    )
+                    .padding(CanopySpacing.sm)
+                    .background(Color.listRowBackground, in: RoundedRectangle(cornerRadius: CanopyCornerRadius.sm))
                 }
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.listRowBackground)
-                .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
-        )
     }
 
     private var actionsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Action")
-                .font(.headline)
-
+        CanopyCard(title: "Action", systemImage: "sparkles") {
             HStack(spacing: 10) {
                 PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 10, matching: .images) {
                     Label("Bibliothèque", systemImage: "photo.on.rectangle")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .canopySecondaryActionStyle()
 
                 #if os(iOS)
                 Button {
@@ -141,7 +113,7 @@ struct PlantIdentifierView: View {
                     Label("Caméra", systemImage: "camera")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                .canopySecondaryActionStyle()
                 .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
                 #endif
             }
@@ -158,7 +130,7 @@ struct PlantIdentifierView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .canopyPrimaryActionStyle()
             .disabled(isLoading || observations.isEmpty)
 
             if let errorMessage, !errorMessage.isEmpty {
@@ -175,55 +147,54 @@ struct PlantIdentifierView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.listRowBackground)
-                .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
-        )
     }
 
     @ViewBuilder
     private var resultCard: some View {
         if let response {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Propositions")
-                    .font(.headline)
-
+            CanopyCard(title: "Propositions", systemImage: "leaf") {
                 ForEach(response.results.prefix(5)) { item in
                     Button {
                         selectedResultID = item.id
                         successMessage = nil
                     } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(item.species.scientificNameWithoutAuthor ?? item.species.scientificName ?? "Nom scientifique inconnu")
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(2)
+                        HStack(alignment: .top, spacing: CanopySpacing.sm) {
+                            referencePreview(for: item)
 
-                            if let common = item.species.commonNames?.first, !common.isEmpty {
-                                Text(common)
-                                    .font(.subheadline)
-                                    .foregroundColor(.textSecondary)
-                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(item.species.scientificNameWithoutAuthor ?? item.species.scientificName ?? "Nom scientifique inconnu")
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(2)
 
-                            HStack(spacing: 8) {
-                                if let family = item.species.family?.scientificNameWithoutAuthor ??
-                                    item.species.family?.scientificName {
-                                    AppBadge(text: family, style: .subtle)
+                                if let common = item.species.commonNames?.first, !common.isEmpty {
+                                    Text(common)
+                                        .font(.subheadline)
+                                        .foregroundColor(.textSecondary)
                                 }
 
-                                Text(String(format: "Confiance %.0f%%", item.score * 100))
-                                    .font(.caption)
+                                HStack(spacing: 8) {
+                                    if let family = item.species.family?.scientificNameWithoutAuthor ??
+                                        item.species.family?.scientificName {
+                                        AppBadge(text: family, style: .subtle)
+                                    }
+
+                                    Text(String(format: "Confiance %.0f%%", item.score * 100))
+                                        .font(.caption)
+                                        .foregroundColor(.textSecondary)
+                                }
+
+                                Text("Photo de reference PlantNet")
+                                    .font(.caption2)
                                     .foregroundColor(.textSecondary)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
+                            RoundedRectangle(cornerRadius: CanopyCornerRadius.sm)
                                 .fill(Color.listRowBackground)
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
+                                    RoundedRectangle(cornerRadius: CanopyCornerRadius.sm)
                                         .stroke(item.id == selectedResultID ? Color.accentPrimary : Color.clear, lineWidth: 1.5)
                                 )
                         )
@@ -231,21 +202,22 @@ struct PlantIdentifierView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.listRowBackground)
-                    .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
-            )
         }
     }
 
     @ViewBuilder
     private var importCard: some View {
         if let selected = selectedResult {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Importer dans ma base")
-                    .font(.headline)
+            CanopyCard(title: "Importer dans ma base", systemImage: "square.and.arrow.down") {
+                if referenceImageURL(for: selected) != nil {
+                    VStack(alignment: .leading, spacing: CanopySpacing.xs) {
+                        referencePreview(for: selected, width: nil, height: 190)
+
+                        Text("Verifie que la photo de reference ressemble bien a ta plante avant d'importer.")
+                            .font(.caption)
+                            .foregroundColor(.textSecondary)
+                    }
+                }
 
                 Text("Espèce: \(selected.species.scientificNameWithoutAuthor ?? selected.species.scientificName ?? "inconnue")")
                     .font(.subheadline)
@@ -279,15 +251,9 @@ struct PlantIdentifierView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .canopyPrimaryActionStyle()
                 .disabled(isSaving)
             }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.listRowBackground)
-                    .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
-            )
         }
     }
 
@@ -398,6 +364,8 @@ struct PlantIdentifierView: View {
                         lifespanMax: existingSpecies.lifespanMax,
                         heightMin: existingSpecies.heightMin,
                         heightMax: existingSpecies.heightMax,
+                        envergureMin: existingSpecies.spreadMin,
+                        envergureMax: existingSpecies.spreadMax,
                         floweringPeriod: existingSpecies.floweringPeriod,
                         fruitingPeriod: existingSpecies.fruitingPeriod
                     )
@@ -426,6 +394,8 @@ struct PlantIdentifierView: View {
                     lifespanMax: nil,
                     heightMin: nil,
                     heightMax: nil,
+                    envergureMin: nil,
+                    envergureMax: nil,
                     floweringPeriod: nil,
                     fruitingPeriod: nil,
                     varietyNotes: nil
@@ -460,6 +430,7 @@ struct PlantIdentifierView: View {
                     acquisitionSource: "identification",
                     careNotes: nil,
                     heightCurrent: nil,
+                    envergureCurrent: nil,
                     latitude: location.coordinate.latitude,
                     longitude: location.coordinate.longitude
                 )
@@ -471,6 +442,49 @@ struct PlantIdentifierView: View {
         }
 
         errorMessage = nil
+    }
+
+    @ViewBuilder
+    private func referencePreview(for item: PlantNetService.ResultItem, width: CGFloat? = 92, height: CGFloat = 92) -> some View {
+        let referenceURL = referenceImageURL(for: item)
+
+        Group {
+            if let referenceURL {
+                CachedAsyncImage(url: referenceURL) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } placeholder: {
+                    referencePlaceholder
+                }
+            } else {
+                referencePlaceholder
+            }
+        }
+        .frame(maxWidth: width ?? .infinity, maxHeight: height)
+        .frame(height: height)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: CanopyCornerRadius.sm))
+    }
+
+    private var referencePlaceholder: some View {
+        ZStack {
+            Color.accentPrimary.opacity(0.08)
+
+            VStack(spacing: 6) {
+                Image(systemName: "photo")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.accentPrimary.opacity(0.9))
+
+                Text("Pas d'image")
+                    .font(.caption2)
+                    .foregroundColor(.textSecondary)
+            }
+        }
+    }
+
+    private func referenceImageURL(for item: PlantNetService.ResultItem) -> URL? {
+        resolvedImageURL(from: normalizedURL(item.bestImageURL))
     }
 
     private func normalizedURL(_ value: String?) -> String? {

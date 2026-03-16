@@ -1,8 +1,11 @@
 import Foundation
 import GRDB
 
-enum LocalV2Schema {
-    static let databaseFileName = "jardin_v2.db"
+enum CanopyLocalSchema {
+    static let databaseFileName = "canopy.db"
+    static let previousDatabaseFileName = "jardin_v2.db"
+    static let syncStateTableName = "sync_state_local"
+    static let syncOutboxTableName = "sync_outbox_local"
 
     static func makeConfiguration() -> Configuration {
         var configuration = Configuration()
@@ -23,13 +26,13 @@ enum LocalV2Schema {
                 table.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "sync_state_v2", ifNotExists: true) { table in
+            try db.create(table: syncStateTableName, ifNotExists: true) { table in
                 table.column("table_name", .text).primaryKey()
                 table.column("last_synced_at", .text)
                 table.column("updated_at", .text).notNull()
             }
 
-            try db.create(table: "sync_outbox_v2", ifNotExists: true) { table in
+            try db.create(table: syncOutboxTableName, ifNotExists: true) { table in
                 table.autoIncrementedPrimaryKey("id")
                 table.column("site_id", .text).notNull()
                 table.column("entity_type", .text).notNull()
@@ -42,7 +45,7 @@ enum LocalV2Schema {
                 table.column("created_at", .text).notNull()
                 table.column("updated_at", .text).notNull()
             }
-            try db.create(index: "idx_sync_outbox_status", on: "sync_outbox_v2", columns: ["status"], ifNotExists: true)
+            try db.create(index: "idx_sync_outbox_status", on: syncOutboxTableName, columns: ["status"], ifNotExists: true)
 
             try db.create(table: "species_private_local", ifNotExists: true) { table in
                 table.autoIncrementedPrimaryKey("id")
@@ -111,6 +114,8 @@ enum LocalV2Schema {
                 table.column("location_lat", .double)
                 table.column("location_lng", .double)
                 table.column("location_alt", .double)
+                table.column("height_current", .double)
+                table.column("envergure_current", .double)
                 table.column("zone", .text)
                 table.column("notes", .text)
                 table.column("tags_json", .text)
@@ -156,11 +161,51 @@ enum LocalV2Schema {
             try db.create(index: "idx_observations_local_site", on: "observations_local", columns: ["site_id"], ifNotExists: true)
         }
 
+        migrator.registerMigration("v2_0002_individual_measurements") { db in
+            let existingColumns = try Set(db.columns(in: "individuals_local").map(\.name))
+
+            if !existingColumns.contains("height_current") {
+                try db.alter(table: "individuals_local") { table in
+                    table.add(column: "height_current", .double)
+                }
+            }
+
+            if !existingColumns.contains("envergure_current") {
+                try db.alter(table: "individuals_local") { table in
+                    table.add(column: "envergure_current", .double)
+                }
+            }
+
+            try db.execute(
+                sql: """
+                  UPDATE individuals_local
+                  SET
+                    height_current = COALESCE(height_current, CAST(json_extract(metadata_json, '$.height_current') AS REAL)),
+                    envergure_current = COALESCE(envergure_current, CAST(json_extract(metadata_json, '$.envergure_current') AS REAL))
+                  WHERE metadata_json IS NOT NULL
+                """
+            )
+        }
+
+        migrator.registerMigration("local_0003_sync_tables") { db in
+            let tableNames = try Set(String.fetchAll(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'"))
+
+            if tableNames.contains("sync_state_v2"), !tableNames.contains(syncStateTableName) {
+                try db.rename(table: "sync_state_v2", to: syncStateTableName)
+            }
+
+            if tableNames.contains("sync_outbox_v2"), !tableNames.contains(syncOutboxTableName) {
+                try db.rename(table: "sync_outbox_v2", to: syncOutboxTableName)
+            }
+
+            try db.create(index: "idx_sync_outbox_status", on: syncOutboxTableName, columns: ["status"], ifNotExists: true)
+        }
+
         return migrator
     }
 }
 
-struct LocalV2SpeciesPrivateRecord: Codable, FetchableRecord, PersistableRecord {
+struct CanopyLocalSpeciesRecord: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "species_private_local"
 
     var id: Int64?
@@ -234,7 +279,7 @@ struct LocalV2SpeciesPrivateRecord: Codable, FetchableRecord, PersistableRecord 
     }
 }
 
-struct LocalV2CultivarRecord: Codable, FetchableRecord, PersistableRecord {
+struct CanopyLocalCultivarRecord: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "cultivars_local"
 
     var id: Int64?
@@ -272,7 +317,7 @@ struct LocalV2CultivarRecord: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
-struct LocalV2IndividualRecord: Codable, FetchableRecord, PersistableRecord {
+struct CanopyLocalIndividualRecord: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "individuals_local"
 
     var id: Int64?
@@ -289,6 +334,8 @@ struct LocalV2IndividualRecord: Codable, FetchableRecord, PersistableRecord {
     var locationLat: Double?
     var locationLng: Double?
     var locationAlt: Double?
+    var heightCurrent: Double?
+    var envergureCurrent: Double?
     var zone: String?
     var notes: String?
     var tagsJSON: String?
@@ -312,6 +359,8 @@ struct LocalV2IndividualRecord: Codable, FetchableRecord, PersistableRecord {
         case locationLat = "location_lat"
         case locationLng = "location_lng"
         case locationAlt = "location_alt"
+        case heightCurrent = "height_current"
+        case envergureCurrent = "envergure_current"
         case zone
         case notes
         case tagsJSON = "tags_json"

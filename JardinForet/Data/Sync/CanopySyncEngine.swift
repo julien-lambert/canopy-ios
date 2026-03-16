@@ -1,6 +1,6 @@
 import Foundation
 
-struct CanopyV2PullSummary {
+struct CanopyPullSummary {
     let siteID: String
     let speciesCount: Int
     let cultivarsCount: Int
@@ -10,24 +10,24 @@ struct CanopyV2PullSummary {
     let individualsMaxUpdatedAt: String?
 }
 
-final class CanopyV2ProjectionSync {
+final class CanopySyncEngine {
     private let remoteClient: CanopyRemoteClient
-    private let localDB: LocalV2Database
-    private let pushEngine: CanopyV2PushEngine
+    private let localDB: CanopyLocalDatabase
+    private let pushEngine: CanopyPushEngine
     private let speciesSyncKey = CanopySchema.Tables.speciesPrivate
     private let cultivarsSyncKey = CanopySchema.Tables.cultivars
     private let individualsSyncKey = CanopySchema.Tables.individuals
 
     init(
         remoteClient: CanopyRemoteClient = CanopyRemoteClient(),
-        localDB: LocalV2Database
+        localDB: CanopyLocalDatabase
     ) {
         self.remoteClient = remoteClient
         self.localDB = localDB
-        self.pushEngine = CanopyV2PushEngine(localDB: localDB)
+        self.pushEngine = CanopyPushEngine(localDB: localDB)
     }
 
-    func pullLatest() async throws -> CanopyV2PullSummary? {
+    func pullLatest() async throws -> CanopyPullSummary? {
         _ = try await pushEngine.pushPending(limit: 100)
 
         let membershipRows = try await remoteClient.fetchSiteMemberships()
@@ -67,7 +67,7 @@ final class CanopyV2ProjectionSync {
             try localDB.setLastSyncedAt(individualsMax, for: individualsSyncKey)
         }
 
-        return CanopyV2PullSummary(
+        return CanopyPullSummary(
             siteID: siteID,
             speciesCount: speciesRows.count,
             cultivarsCount: cultivarRows.count,

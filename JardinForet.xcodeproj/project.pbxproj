@@ -233,7 +233,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "ROOT=\"${SRCROOT}/JardinForet/View\"\nPATTERN=\"GardenDatabase|GRDB|DatabaseQueue|DatabasePool\"\nif /usr/bin/grep -R -n -E \"$PATTERN\" \"$ROOT\"; then\n  echo \"ERROR: Views must not reference database layer types. Use GardenStore only.\"\n  exit 1\nfi\n";
+			shellScript = "ROOT=\"${SRCROOT}/JardinForet/View\"\nPATTERN=\"GardenDatabase|CanopyLocalDatabase|CanopyLocalSchema|GRDB|DatabaseQueue|DatabasePool\"\nif /usr/bin/grep -R -n -E \"$PATTERN\" \"$ROOT\"; then\n  echo \"ERROR: Views must not reference database layer types. Use CanopyStore only.\"\n  exit 1\nfi\n";
 		};
 		1F2C9A4C2F9A100100AA0002 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;

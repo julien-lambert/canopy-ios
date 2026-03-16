@@ -2,9 +2,9 @@ import Foundation
 
 enum CanopyUIAdapters {
     static func toGardenTaxa(
-        speciesRecords: [LocalV2SpeciesPrivateRecord],
-        cultivarRecords: [LocalV2CultivarRecord],
-        individuals: [LocalV2IndividualRecord]
+        speciesRecords: [CanopyLocalSpeciesRecord],
+        cultivarRecords: [CanopyLocalCultivarRecord],
+        individuals: [CanopyLocalIndividualRecord]
     ) -> [GardenTaxon] {
         let activeCultivars = cultivarRecords.filter { $0.deletedAt == nil }
         let plantCountBySpecies: [String: Int] = Dictionary(
@@ -66,9 +66,9 @@ enum CanopyUIAdapters {
     }
 
     static func toGardenPlants(
-        individuals: [LocalV2IndividualRecord],
-        speciesRecords: [LocalV2SpeciesPrivateRecord],
-        cultivarRecords: [LocalV2CultivarRecord]
+        individuals: [CanopyLocalIndividualRecord],
+        speciesRecords: [CanopyLocalSpeciesRecord],
+        cultivarRecords: [CanopyLocalCultivarRecord]
     ) -> [GardenPlant] {
         let speciesByRemoteID = Dictionary(uniqueKeysWithValues: speciesRecords.map { ($0.remoteID, $0) })
         let cultivarByRemoteID = Dictionary(uniqueKeysWithValues: cultivarRecords.map { ($0.remoteID, $0) })
@@ -99,8 +99,8 @@ enum CanopyUIAdapters {
                     microSite: metadata["micro_site"]?.stringValue,
                     exposureLocal: metadata["exposure_local"]?.stringValue,
                     soilLocal: metadata["soil_local"]?.stringValue,
-                    heightCurrent: metadata["height_current"]?.doubleValue,
-                    spreadCurrent: nil,
+                    heightCurrent: plant.heightCurrent ?? metadata["height_current"]?.doubleValue,
+                    spreadCurrent: plant.envergureCurrent ?? metadata["envergure_current"]?.doubleValue,
                     acquisitionType: metadata["acquisition_type"]?.stringValue,
                     acquisitionSource: metadata["acquisition_source"]?.stringValue,
                     plantnetObsID: nil,
@@ -154,7 +154,7 @@ enum CanopyUIAdapters {
     }
 
     static func toGardenCultivars(
-        cultivars: [LocalV2CultivarRecord],
+        cultivars: [CanopyLocalCultivarRecord],
         speciesID: Int,
         plantCountByCultivar: [String: Int] = [:]
     ) -> [GardenTaxon] {
@@ -204,13 +204,13 @@ enum CanopyUIAdapters {
             }
     }
 
-    private static func fallbackCommonName(for species: LocalV2SpeciesPrivateRecord) -> String {
+    private static func fallbackCommonName(for species: CanopyLocalSpeciesRecord) -> String {
         let value = species.commonName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let value, !value.isEmpty { return value }
         return fallbackLatinName(for: species)
     }
 
-    private static func fallbackLatinName(for species: LocalV2SpeciesPrivateRecord) -> String {
+    private static func fallbackLatinName(for species: CanopyLocalSpeciesRecord) -> String {
         let value = species.latinName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let value, !value.isEmpty { return value }
         return "Espèce"

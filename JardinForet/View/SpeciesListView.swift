@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SpeciesListView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     /// Texte de recherche global (barre latérale macOS). Par défaut vide (iOS).
     var searchQuery: String = ""
     /// Texte de recherche local à la vue (champ `.searchable` intégré).
@@ -93,23 +93,37 @@ private struct SpeciesListContentView: View {
     @Binding var searchText: String
 
     var body: some View {
-        List {
-            ForEach(families) { family in
-                Section(header: FamilyHeaderView(name: family.name)) {
-                    ForEach(family.genera) { genus in
-                        GenusBlockView(genus: genus)
-                            .listRowBackground(Color.appBackground)
-                            .listRowSeparator(.hidden)
+        Group {
+            if families.isEmpty {
+                CanopyScreen {
+                    CanopyEmptyState(
+                        title: "Aucune espèce trouvée",
+                        message: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? "Ajoute une espèce pour enrichir le référentiel botanique du site."
+                            : "Aucune espèce ne correspond à cette recherche.",
+                        systemImage: "tree.circle"
+                    )
+                }
+            } else {
+                List {
+                    ForEach(families) { family in
+                        Section(header: FamilyHeaderView(name: family.name)) {
+                            ForEach(family.genera) { genus in
+                                GenusBlockView(genus: genus)
+                                    .listRowBackground(Color.appBackground)
+                                    .listRowSeparator(.hidden)
+                            }
+                        }
                     }
                 }
+                #if os(macOS)
+                .listStyle(.inset)
+                #else
+                .listStyle(.plain)
+                #endif
+                .background(Color.appBackground)
             }
         }
-        #if os(macOS)
-        .listStyle(.inset)
-        #else
-        .listStyle(.plain)
-        #endif
-        .background(Color.appBackground)
         .searchable(text: $searchText, prompt: "Rechercher une espèce")
     }
 
@@ -118,9 +132,7 @@ private struct SpeciesListContentView: View {
         let name: String
 
         var body: some View {
-            Text(name.uppercased())
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.textSecondary)
+            CanopySectionHeader(title: name.uppercased())
                 .padding(.vertical, 4)
         }
     }
@@ -306,19 +318,33 @@ private struct SpeciesGridMacOS: View {
     ]
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 30) {
-                ForEach(items) { item in
-                    NavigationLink {
-                        SpeciesDetailView(speciesId: item.species.id)
-                    } label: {
-                        SpeciesCardMacOS(item: item)
+        Group {
+            if items.isEmpty {
+                CanopyScreen {
+                    CanopyEmptyState(
+                        title: "Aucune espèce trouvée",
+                        message: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? "Ajoute une espèce pour commencer à structurer le catalogue."
+                            : "Aucune espèce ne correspond à cette recherche.",
+                        systemImage: "tree.circle"
+                    )
+                }
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 30) {
+                        ForEach(items) { item in
+                            NavigationLink {
+                                SpeciesDetailView(speciesId: item.species.id)
+                            } label: {
+                                SpeciesCardMacOS(item: item)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 16)
         }
         .background(Color.appBackground.ignoresSafeArea())
         .searchable(text: $searchText, prompt: "Rechercher une espèce")
@@ -397,10 +423,7 @@ private struct SpeciesCardMacOS: View {
             .padding(.bottom, 2)
 
             // Carte visuelle arrondie et compacte
-            ZStack {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.cardContrastBackground)
-
+            CanopyCard {
                 HStack(alignment: .center, spacing: 12) {
                     avatarView
                         .frame(width: 72, height: 72)
@@ -431,14 +454,8 @@ private struct SpeciesCardMacOS: View {
                         }
                     }
                 }
-                .padding(12)
             }
             .frame(height: cardHeight, alignment: .center)
-            .overlay(
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.cardContrastStroke, lineWidth: 1)
-            )
-            .shadow(color: Color.cardContrastShadow, radius: 6, x: 0, y: 3)
         }
         // on pousse le contenu vers la droite pour laisser la place au séparateur
         .padding(.leading, 10)
@@ -496,42 +513,42 @@ fileprivate struct SpeciesRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            avatarView
-                .frame(width: 64, height: 64)
+        CanopyCard {
+            HStack(alignment: .top, spacing: 12) {
+                avatarView
+                    .frame(width: 64, height: 64)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.textPrimary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 14))
-                        .foregroundColor(.textSecondary)
-                        .italic()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                }
 
-                HStack {
-                    if let strata = strataBadge {
-                        AppBadge(text: strata, style: .subtle)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 14))
+                            .foregroundColor(.textSecondary)
+                            .italic()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
-                    Spacer(minLength: 8)
+                    HStack {
+                        if let strata = strataBadge {
+                            AppBadge(text: strata, style: .subtle)
+                        }
 
-                    AppBadge(text: plantCountText, style: .accent)
-                        .fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 8)
+
+                        AppBadge(text: plantCountText, style: .accent)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
-            }
 
-            Spacer()
+                Spacer()
+            }
         }
-        .padding(10)
-        .liquidGlassCard(cornerRadius: 14)
         .padding(.vertical, 3)
     }
 }

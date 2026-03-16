@@ -3,8 +3,6 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         TabView {
-
-            // Onglet Accueil
             NavigationStack {
                 HomeView()
             }
@@ -12,28 +10,26 @@ struct ContentView: View {
                 Label("Accueil", systemImage: "house")
             }
 
-            // Onglet Plantes
             NavigationStack {
                 PlantsListView()
             }
             .tabItem {
-                Label("Plantes", systemImage: "leaf")
+                Label("Individus", systemImage: "leaf")
             }
-            
-            // Onglet Especes
+
             NavigationStack {
                 SpeciesListView()
             }
             .tabItem {
-                Label("Espece", systemImage: "tree")
+                Label("Espèces", systemImage: "tree")
             }
         }
-        .accentColor(.accentPrimary) // ta couleur si tu veux
+        .tint(.accentPrimary)
     }
 }
 
 #Preview {
     // Préview avec store local
     ContentView()
-        .environmentObject(GardenStore())
+        .environmentObject(CanopyStore())
 }

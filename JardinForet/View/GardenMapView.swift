@@ -10,16 +10,16 @@ import MapKit
 
 
 struct GardenMapView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     @EnvironmentObject var locationManager: LocationManager
     @Environment(\.colorScheme) private var colorScheme
 
-    // Legacy SwiftUI Map state (kept so existing MapContent helpers still compile; not used by MKMapView backend)
+    // Historical SwiftUI map state kept so existing MapContent helpers still compile; not used by MKMapView backend.
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var currentRegion: MKCoordinateRegion? = nil
     @State private var showWisdomTreeLabel = false
 
-    // Legacy viewport size (used by old SwiftUI crown conversion)
+    // Historical viewport size kept for the previous SwiftUI crown conversion helpers.
     @State private var mapViewportSize: CGSize = .zero
 
 
@@ -112,26 +112,12 @@ struct GardenMapView: View {
         let action: () -> Void
 
         var body: some View {
-            Button(action: action) {
-                HStack(spacing: 4) {
-                    Image(systemName: systemName)
-                        .font(.system(size: 12, weight: .medium))
-                    Text(label)
-                        .font(.caption2)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(isActive ? Color.accentPrimary : Color.cardBackground)
-                )
-                .foregroundStyle(isActive ? Color.white : Color.primary)
-                .overlay(
-                    Capsule()
-                        .stroke(Color.accentPrimary.opacity(isActive ? 0.0 : 0.4), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
+            CanopySelectableChip(
+                title: label,
+                systemImage: systemName,
+                isSelected: isActive,
+                action: action
+            )
         }
     }
 
@@ -334,19 +320,13 @@ struct GardenMapView: View {
                             hillshadeEnabled.toggle()
                         }
                     }
-                    .padding(6)
-                    .background(Color.cardBackground)
-                    .clipShape(Capsule())
-                    .shadow(radius: 3)
+                    .canopyFloatingCapsule()
 
                     Spacer()
 
                     // Boussole Apple, toujours visible, calée à droite
                     MapCompass()
-                        .padding(6)
-                        .background(Color.cardBackground)
-                        .clipShape(Circle())
-                        .shadow(radius: 3)
+                        .canopyFloatingCircle()
                 }
 
                 // (StrataFilterBar moved to bottom overlay)
@@ -359,50 +339,47 @@ struct GardenMapView: View {
             VStack {
                 Spacer()
                 if let draft = editingDraft {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Edition: \(draft.commonName)")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Canopée: \(formattedCanopyLength(draft.canopyDiameterMeters))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    CanopyCard(
+                        title: "Modifier un individu",
+                        subtitle: draft.commonName,
+                        systemImage: "move.3d"
+                    ) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Canopée: \(formattedCanopyLength(draft.canopyDiameterMeters))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
-                        Slider(
-                            value: Binding(
-                                get: {
-                                    let size = editingDraft?.canopyDiameterMeters ?? draft.canopyDiameterMeters
-                                    return logarithmicUnitValue(for: size)
-                                },
-                                set: { newValue in
-                                    editingDraft?.canopyDiameterMeters = canopySizeFromLogarithmicUnit(newValue)
+                            Slider(
+                                value: Binding(
+                                    get: {
+                                        let size = editingDraft?.canopyDiameterMeters ?? draft.canopyDiameterMeters
+                                        return logarithmicUnitValue(for: size)
+                                    },
+                                    set: { newValue in
+                                        editingDraft?.canopyDiameterMeters = canopySizeFromLogarithmicUnit(newValue)
+                                    }
+                                ),
+                                in: 0...1
+                            )
+
+                            HStack(spacing: 10) {
+                                Button("Annuler", role: .cancel) {
+                                    editingDraft = nil
                                 }
-                            ),
-                            in: 0...1
-                        )
+                                .canopySecondaryActionStyle()
 
-                        HStack(spacing: 10) {
-                            Button("Annuler", role: .cancel) {
-                                editingDraft = nil
+                                Button("Enregistrer") {
+                                    saveCurrentPlantEdit()
+                                }
+                                .canopyPrimaryActionStyle()
                             }
-                            .buttonStyle(.bordered)
-
-                            Button("Enregistrer") {
-                                saveCurrentPlantEdit()
-                            }
-                            .buttonStyle(.borderedProminent)
                         }
                     }
-                    .padding(12)
-                    .background(Color.cardBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .shadow(radius: 3)
                     .padding(.bottom, 10)
                 }
                 HStack {
                     StrataFilterBar(selected: $selectedStrataFilter)
-                        .padding(8)
-                        .background(Color.cardBackground)
-                        .clipShape(Capsule())
-                        .shadow(radius: 3)
+                        .canopyFloatingCapsule()
                 }
                 .padding(.bottom, 20)
             }
@@ -1327,15 +1304,10 @@ struct GardenMapView: View {
                     endPoint: .bottomTrailing
                 )
 
-                VStack(spacing: 8) {
-                    Image(systemName: "map")
-                        .font(.system(size: 32, weight: .medium))
-                        .foregroundColor(.white.opacity(0.85))
-
-                    Text("Aucun individu géolocalisé")
-                        .font(.footnote)
-                        .foregroundColor(.white.opacity(0.9))
+                CanopyCard(title: "Carte en attente", subtitle: "Ajoute ou géolocalise un individu pour faire apparaître le jardin.", systemImage: "map") {
+                    EmptyView()
                 }
+                .padding(.horizontal, 24)
             }
         }
     }
@@ -1442,28 +1414,12 @@ struct StrataFilterBar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(GardenMapView.StrataFilter.allCases) { filter in
-                    let isSelected = (filter == selected)
-                    Button {
+                    CanopySelectableChip(
+                        title: filter.label,
+                        isSelected: filter == selected
+                    ) {
                         selected = filter
-                    } label: {
-                        Text(filter.label)
-                            .font(.caption2)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule()
-                                    .fill(isSelected ? Color.accentPrimary : Color.cardBackground)
-                            )
-                            .foregroundStyle(isSelected ? Color.white : Color.primary)
-                            .overlay(
-                                Capsule()
-                                    .stroke(
-                                        Color.accentPrimary.opacity(isSelected ? 0.0 : 0.4),
-                                        lineWidth: 1
-                                    )
-                            )
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }

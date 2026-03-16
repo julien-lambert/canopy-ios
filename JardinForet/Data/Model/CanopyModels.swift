@@ -242,6 +242,7 @@ struct PlantWriteInput {
     var acquisitionSource: String? = nil
     var careNotes: String? = nil
     var heightCurrent: Double? = nil
+    var envergureCurrent: Double? = nil
     var latitude: Double? = nil
     var longitude: Double? = nil
 }
@@ -267,6 +268,8 @@ struct SpeciesWriteInput {
     var lifespanMax: Int?
     var heightMin: Double?
     var heightMax: Double?
+    var envergureMin: Double?
+    var envergureMax: Double?
     var floweringPeriod: String?
     var fruitingPeriod: String?
     var varietyNotes: String?
@@ -291,6 +294,8 @@ struct SpeciesCommonWriteInput {
     var lifespanMax: Int?
     var heightMin: Double?
     var heightMax: Double?
+    var envergureMin: Double?
+    var envergureMax: Double?
     var floweringPeriod: String?
     var fruitingPeriod: String?
 }
@@ -833,6 +838,7 @@ extension DBPlant {
         acquisitionSource = input.acquisitionSource
         careNotes = input.careNotes
         heightCurrent = input.heightCurrent
+        envergureCurrent = input.envergureCurrent
         lat = input.latitude
         lon = input.longitude
         self.updatedAt = updatedAt
@@ -885,6 +891,8 @@ extension DBSpecies {
         varietyName = input.varietyName
         latinName = input.latinName
         botanicalProfile = input.profile
+        envergureMin = input.envergureMin
+        envergureMax = input.envergureMax
         varietyNotes = input.varietyNotes
         self.updatedAt = updatedAt
     }
@@ -892,6 +900,8 @@ extension DBSpecies {
     mutating func applyCommonWriteInput(_ input: SpeciesCommonWriteInput, updatedAt: String) {
         commonName = input.commonName
         botanicalProfile = input.profile
+        envergureMin = input.envergureMin
+        envergureMax = input.envergureMax
         self.updatedAt = updatedAt
     }
 }

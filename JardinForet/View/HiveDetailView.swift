@@ -1,38 +1,25 @@
-//
-//  HiveDetailView.swift
-//  JardinForet
-//
-//  Created by Julien Lambert on 17/11/2025.
-//
-
 import SwiftUI
 
 struct HiveDetailView: View {
     let hiveID: Int
-    @EnvironmentObject var store: GardenStore
 
     var body: some View {
-        if let hive = store.fetchHive(id: hiveID) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(hive.name)
-                    .font(.title)
-
-                if let breed = hive.beeBreed {
-                    Text("Race : \(breed)")
-                }
-
-                if let year = hive.queenYear {
-                    Text("Reine née en \(year)")
-                }
-
-                if let origin = hive.origin {
-                    Text("Origine de l’essaim : \(origin)")
-                }
+        CanopyScreen {
+            CanopyCard(title: "Fiche ruche indisponible", systemImage: "shippingbox") {
+                Text("La fiche ruche détaillée n’est plus reliée à l’ancienne base locale.")
+                    .font(.body)
+                Text("Identifiant demandé: \(hiveID)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            .padding()
-            .navigationTitle("Détail ruche")
-        } else {
-            Text("Ruche introuvable")
+
+            CanopyCard(title: "Suite prévue", systemImage: "arrow.triangle.2.circlepath") {
+                Text("Le module apiculture sera réintroduit quand son schéma local Canopy et sa synchronisation Supabase seront définis proprement.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .navigationTitle("Détail ruche")
     }
 }

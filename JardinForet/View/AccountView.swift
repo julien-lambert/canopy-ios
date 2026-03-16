@@ -6,66 +6,77 @@ struct AccountView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Session") {
-                    LabeledContent("Email", value: authStore.currentUserEmail)
-                    LabeledContent("Statut", value: authStore.isAuthenticated ? "Connecté" : "Déconnecté")
+            CanopyScreen {
+                CanopyCard(title: "Session", systemImage: "person.crop.circle") {
+                    VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                        CanopyInfoLine(label: "Email", value: authStore.currentUserEmail)
+                        CanopyInfoLine(
+                            label: "Statut",
+                            value: authStore.isAuthenticated ? "Connecté" : "Déconnecté"
+                        )
+                    }
                 }
 
-                Section("Site actif") {
-                    if workspaceStore.sites.isEmpty {
-                        Text("Aucun site membre disponible.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Picker("Site", selection: selectedSiteBinding) {
-                            ForEach(workspaceStore.sites) { site in
-                                Text("\(site.name) (\(site.role))")
-                                    .tag(site.id)
+                CanopyCard(title: "Site actif", systemImage: "leaf.circle") {
+                    VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                        if workspaceStore.sites.isEmpty {
+                            Text("Aucun site membre disponible.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Picker("Site", selection: selectedSiteBinding) {
+                                ForEach(workspaceStore.sites) { site in
+                                    Text("\(site.name) (\(site.role))")
+                                        .tag(site.id)
+                                }
                             }
+                            .disabled(workspaceStore.isLoading)
                         }
+
+                        Button("Rafraîchir le workspace") {
+                            Task { await workspaceStore.refresh() }
+                        }
+                        .canopySecondaryActionStyle()
                         .disabled(workspaceStore.isLoading)
                     }
-
-                    Button("Rafraîchir le workspace") {
-                        Task { await workspaceStore.refresh() }
-                    }
-                    .disabled(workspaceStore.isLoading)
                 }
 
                 if !workspaceStore.modules.isEmpty {
-                    Section("Modules du site") {
-                        ForEach(workspaceStore.modules) { module in
-                            Toggle(isOn: moduleEnabledBinding(for: module.code)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(module.label)
-                                    Text(module.code)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                    CanopyCard(title: "Modules du site", systemImage: "square.grid.2x2") {
+                        VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                            ForEach(workspaceStore.modules) { module in
+                                Toggle(isOn: moduleEnabledBinding(for: module.code)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(module.label)
+                                        Text(module.code)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
+                                .disabled(!workspaceStore.canManageModules || workspaceStore.isLoading)
                             }
-                            .disabled(!workspaceStore.canManageModules || workspaceStore.isLoading)
-                        }
 
-                        if !workspaceStore.canManageModules {
-                            Text("Seuls owner/admin peuvent modifier les modules.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            if !workspaceStore.canManageModules {
+                                Text("Seuls owner/admin peuvent modifier les modules.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
 
-                Section {
+                CanopyCard(title: "Compte", systemImage: "rectangle.portrait.and.arrow.right") {
                     Button(role: .destructive) {
                         Task { await authStore.signOut() }
                     } label: {
                         Text("Se déconnecter")
                             .frame(maxWidth: .infinity)
                     }
+                    .canopyPrimaryActionStyle()
                     .disabled(authStore.isLoading || !authStore.isAuthenticated)
                 }
 
                 if let error = authStore.errorMessage, !error.isEmpty {
-                    Section("État") {
+                    CanopyCard(title: "État", systemImage: "exclamationmark.triangle") {
                         Text(error)
                             .font(.footnote)
                             .foregroundStyle(.red)
@@ -73,7 +84,7 @@ struct AccountView: View {
                 }
 
                 if let workspaceError = workspaceStore.errorMessage, !workspaceError.isEmpty {
-                    Section("Workspace") {
+                    CanopyCard(title: "Workspace", systemImage: "exclamationmark.triangle") {
                         Text(workspaceError)
                             .font(.footnote)
                             .foregroundStyle(.red)

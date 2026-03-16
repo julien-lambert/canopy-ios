@@ -1,5 +1,5 @@
 import Foundation
-
+ 
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -7,8 +7,12 @@ import AppKit
 #endif
 
 struct PlantNetService {
+    private struct EdgeEnvelope: Decodable {
+        let ok: Bool
+        let data: IdentifyResponse?
+    }
+
     enum PlantNetError: LocalizedError {
-        case missingAPIKey
         case noImages
         case invalidImageFormat
         case invalidResponse
@@ -16,8 +20,6 @@ struct PlantNetService {
 
         var errorDescription: String? {
             switch self {
-            case .missingAPIKey:
-                return "La clé API PlantNet est manquante. Configure PLANTNET_API_KEY dans les Build Settings (ou un xcconfig local non versionné)."
             case .noImages:
                 return "Ajoute au moins une photo avant d’identifier."
             case .invalidImageFormat:
@@ -127,12 +129,6 @@ struct PlantNetService {
             throw PlantNetError.noImages
         }
 
-        guard let apiKey = Bundle.main.object(forInfoDictionaryKey: "PLANTNET_API_KEY") as? String,
-              !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !apiKey.contains("$(") else {
-            throw PlantNetError.missingAPIKey
-        }
-
         let normalized: [Observation] = try observations.map { obs in
             guard let normalizedData = normalizeImageDataForPlantNet(obs.imageData) else {
                 throw PlantNetError.invalidImageFormat
@@ -140,40 +136,32 @@ struct PlantNetService {
             return Observation(imageData: normalizedData, organ: obs.organ)
         }
 
-        let boundary = "Boundary-\(UUID().uuidString)"
-        var components = URLComponents(string: "https://my-api.plantnet.org/v2/identify/\(project)")
-        components?.queryItems = [
-            URLQueryItem(name: "api-key", value: apiKey),
-            URLQueryItem(name: "lang", value: lang),
-            URLQueryItem(name: "include-related-images", value: "true"),
-            URLQueryItem(name: "no-reject", value: "true"),
-            URLQueryItem(name: "nb-results", value: "\(nbResults)")
-        ]
+        let siteID = try CanopyEdgeFunctionsClient.currentSiteID()
+        let observationsPayload: [CanopyJSONValue] = normalized.enumerated().map { index, observation in
+            .object([
+                "image_base64": .string(observation.imageData.base64EncodedString()),
+                "organ": .string(observation.organ.rawValue),
+                "filename": .string("plant_\(index).jpg"),
+                "mime_type": .string("image/jpeg")
+            ])
+        }
 
-        guard let url = components?.url else {
+        let envelope: EdgeEnvelope = try await CanopyEdgeFunctionsClient.invoke(
+            "fn-plantnet-v2",
+            body: [
+                "site_id": .string(siteID),
+                "project": .string(project),
+                "lang": .string(lang),
+                "nb_results": .int(nbResults),
+                "observations": .array(observationsPayload)
+            ],
+            responseType: EdgeEnvelope.self
+        )
+
+        guard envelope.ok, let payload = envelope.data else {
             throw PlantNetError.invalidResponse
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.httpBody = makeMultipartBody(boundary: boundary, observations: normalized)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw PlantNetError.invalidResponse
-        }
-
-        guard (200...299).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "No body"
-            throw PlantNetError.httpError(http.statusCode, body)
-        }
-
-        do {
-            return try JSONDecoder().decode(IdentifyResponse.self, from: data)
-        } catch {
-            throw PlantNetError.invalidResponse
-        }
+        return payload
     }
 
     func identify(imageData: Data, organ: Organ = .auto, project: String = "all", lang: String = "fr", nbResults: Int = 5) async throws -> IdentifyResponse {
@@ -183,26 +171,6 @@ struct PlantNetService {
             lang: lang,
             nbResults: nbResults
         )
-    }
-
-    private func makeMultipartBody(boundary: String, observations: [Observation]) -> Data {
-        var body = Data()
-        let lineBreak = "\r\n"
-
-        for (index, observation) in observations.enumerated() {
-            body.append("--\(boundary)\(lineBreak)")
-            body.append("Content-Disposition: form-data; name=\"organs\"\(lineBreak)\(lineBreak)")
-            body.append("\(observation.organ.rawValue)\(lineBreak)")
-
-            body.append("--\(boundary)\(lineBreak)")
-            body.append("Content-Disposition: form-data; name=\"images\"; filename=\"plant_\(index).jpg\"\(lineBreak)")
-            body.append("Content-Type: image/jpeg\(lineBreak)\(lineBreak)")
-            body.append(observation.imageData)
-            body.append(lineBreak)
-        }
-
-        body.append("--\(boundary)--\(lineBreak)")
-        return body
     }
 
     private func normalizeImageDataForPlantNet(_ data: Data) -> Data? {
@@ -230,19 +198,6 @@ struct PlantNetService {
         data.starts(with: [0xFF, 0xD8, 0xFF])
     }
 }
-
-private extension Data {
-    mutating func append(_ string: String) {
-        if let data = string.data(using: .utf8) {
-            append(data)
-        }
-    }
-}
-
-
-import Foundation
-import GoogleGenerativeAI
-
 struct PlantAIResponse: Codable {
     let nomLatin: String
     let famille: String
@@ -325,27 +280,40 @@ struct CultivarAIPayload: Codable {
 }
 
 enum GardenAIServiceError: LocalizedError {
-    case missingAPIKey
     case emptyResponse
     case invalidJSON
-    case modelUnavailable
 
     var errorDescription: String? {
         switch self {
-        case .missingAPIKey:
-            return "GEMINI_API_KEY manquante ou invalide."
         case .emptyResponse:
             return "La réponse Gemini est vide."
         case .invalidJSON:
             return "La réponse Gemini n'est pas un JSON valide."
-        case .modelUnavailable:
-            return "Aucun modèle Gemini compatible n'est disponible."
         }
     }
 }
 
 final class GardenAIService {
     static let shared = GardenAIService()
+
+    private struct GeminiEnvelope: Decodable {
+        struct Payload: Decodable {
+            let model: String?
+            let text: String?
+            let json: CanopyJSONValue?
+            let finishReason: String?
+
+            enum CodingKeys: String, CodingKey {
+                case model
+                case text
+                case json
+                case finishReason = "finish_reason"
+            }
+        }
+
+        let ok: Bool
+        let data: Payload?
+    }
 
     private init() {}
 
@@ -388,20 +356,6 @@ final class GardenAIService {
     - Chaque ligne doit être actionnable.
     """
 
-    private static func modelNames() -> [String] {
-        if let rawList = stringValue(for: "GEMINI_MODELS") {
-            let models = rawList
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            if !models.isEmpty { return models }
-        }
-        if let single = stringValue(for: "GEMINI_MODEL")?.trimmingCharacters(in: .whitespacesAndNewlines), !single.isEmpty {
-            return [single]
-        }
-        return ["gemini-2.5-pro", "gemini-2.5-flash"]
-    }
-
     func payloadDictionary<T: Encodable>(from payload: T) throws -> [String: Any] {
         let data = try JSONEncoder().encode(payload)
         let object = try JSONSerialization.jsonObject(with: data, options: [])
@@ -412,23 +366,10 @@ final class GardenAIService {
     }
 
     func completePayload<T: Codable>(_ payload: T) async throws -> T {
-        guard
-            let apiKey = Self.stringValue(for: "GEMINI_API_KEY"),
-            !apiKey.isEmpty,
-            !apiKey.hasPrefix("$(")
-        else {
-            throw GardenAIServiceError.missingAPIKey
-        }
-
         let payloadData = try JSONEncoder().encode(payload)
         guard let payloadJSON = String(data: payloadData, encoding: .utf8), !payloadJSON.isEmpty else {
             throw GardenAIServiceError.invalidJSON
         }
-
-        let generationConfig = GenerationConfig(
-            responseMIMEType: "application/json",
-            responseSchema: schemaForPayload(payload)
-        )
 
         let prompt = """
         Analyse l'objet JSON suivant et complète uniquement les champs vides ("" ou null).
@@ -439,8 +380,7 @@ final class GardenAIService {
 
         return try await generateAndDecode(
             prompt: prompt,
-            generationConfig: generationConfig,
-            apiKey: apiKey,
+            responseSchema: schemaForPayload(payload),
             decode: T.self
         )
     }
@@ -459,19 +399,6 @@ final class GardenAIService {
             throw GardenAIServiceError.emptyResponse
         }
 
-        guard
-            let apiKey = Self.stringValue(for: "GEMINI_API_KEY"),
-            !apiKey.isEmpty,
-            !apiKey.hasPrefix("$(")
-        else {
-            throw GardenAIServiceError.missingAPIKey
-        }
-
-        let generationConfig = GenerationConfig(
-            responseMIMEType: "application/json",
-            responseSchema: plantAIResponseSchema()
-        )
-
         let prompt = """
         Donne UNIQUEMENT un JSON avec les clés exactes:
         nomLatin, famille, description, rusticite, besoinsEau, expositionSoleil.
@@ -482,8 +409,7 @@ final class GardenAIService {
 
         return try await generateAndDecode(
             prompt: prompt,
-            generationConfig: generationConfig,
-            apiKey: apiKey,
+            responseSchema: plantAIResponseSchema(),
             decode: PlantAIResponse.self
         )
     }
@@ -493,19 +419,6 @@ final class GardenAIService {
         guard !trimmedName.isEmpty else {
             throw GardenAIServiceError.emptyResponse
         }
-
-        guard
-            let apiKey = Self.stringValue(for: "GEMINI_API_KEY"),
-            !apiKey.isEmpty,
-            !apiKey.hasPrefix("$(")
-        else {
-            throw GardenAIServiceError.missingAPIKey
-        }
-
-        let generationConfig = GenerationConfig(
-            responseMIMEType: "application/json",
-            responseSchema: speciesObjectSchema()
-        )
 
         let prompt = """
         Renvoie UNIQUEMENT un JSON avec exactement ces clés:
@@ -520,55 +433,53 @@ final class GardenAIService {
 
         return try await generateAndDecode(
             prompt: prompt,
-            generationConfig: generationConfig,
-            apiKey: apiKey,
+            responseSchema: speciesObjectSchema(),
             decode: SpeciesAIResponse.self
         )
     }
 
     private func generateAndDecode<T: Decodable>(
         prompt: String,
-        generationConfig: GenerationConfig,
-        apiKey: String,
+        responseSchema: [String: CanopyJSONValue]?,
         decode: T.Type
     ) async throws -> T {
-        let modelNames = Self.modelNames()
-        var lastError: Error?
-
-        for modelName in modelNames {
-            let model = GenerativeModel(
-                name: modelName,
-                apiKey: apiKey,
-                generationConfig: generationConfig,
-                systemInstruction: Self.deveySystemInstruction
-            )
-
-            do {
-                let response = try await model.generateContent(prompt)
-                let rawText = (response.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !rawText.isEmpty else {
-                    throw GardenAIServiceError.emptyResponse
-                }
-                guard let jsonData = extractJSONObject(from: rawText) else {
-                    throw GardenAIServiceError.invalidJSON
-                }
-                let decoded = try JSONDecoder().decode(T.self, from: jsonData)
-                let sanitized = await sanitizeDecodedAsync(decoded)
-                return await MainActor.run { sanitized }
-            } catch {
-                lastError = error
-                let message = (error as NSError).localizedDescription.lowercased()
-                if message.contains("not found") || message.contains("not supported") || message.contains("404") {
-                    continue
-                }
-                throw error
-            }
+        let siteID = try CanopyEdgeFunctionsClient.currentSiteID()
+        var body: [String: CanopyJSONValue] = [
+            "site_id": .string(siteID),
+            "prompt": .string(prompt),
+            "system_instruction": .string(Self.deveySystemInstruction),
+            "response_mime_type": .string("application/json")
+        ]
+        if let responseSchema {
+            body["response_schema"] = .object(responseSchema)
         }
 
-        if let lastError {
-            throw lastError
+        let envelope: GeminiEnvelope = try await CanopyEdgeFunctionsClient.invoke(
+            "fn-gemini-v2",
+            body: body,
+            responseType: GeminiEnvelope.self
+        )
+
+        guard envelope.ok, let payload = envelope.data else {
+            throw GardenAIServiceError.emptyResponse
         }
-        throw GardenAIServiceError.modelUnavailable
+
+        let jsonData: Data?
+        if let rawJSON = payload.json {
+            jsonData = try? JSONEncoder().encode(rawJSON)
+        } else if let text = normalizedString(payload.text) {
+            jsonData = extractJSONObject(from: text)
+        } else {
+            jsonData = nil
+        }
+
+        guard let jsonData else {
+            throw GardenAIServiceError.invalidJSON
+        }
+
+        let decoded = try JSONDecoder().decode(T.self, from: jsonData)
+        let sanitized = await sanitizeDecodedAsync(decoded)
+        return await MainActor.run { sanitized }
     }
 
     private func sanitizeDecodedAsync<T>(_ value: T) async -> T {
@@ -917,16 +828,6 @@ final class GardenAIService {
         return Self.allowedStrata.contains(mapped) ? mapped : nil
     }
 
-    private static func stringValue(for key: String) -> String? {
-        if let env = ProcessInfo.processInfo.environment[key], !env.isEmpty {
-            return env
-        }
-        if let plist = Bundle.main.object(forInfoDictionaryKey: key) as? String, !plist.isEmpty {
-            return plist
-        }
-        return nil
-    }
-
     private func extractJSONObject(from text: String) -> Data? {
         if let directData = text.data(using: .utf8) {
             return directData
@@ -941,7 +842,7 @@ final class GardenAIService {
         return payload.data(using: .utf8)
     }
 
-    private func schemaForPayload(_ payload: Any) -> Schema? {
+    private func schemaForPayload(_ payload: Any) -> [String: CanopyJSONValue]? {
         if payload is SpeciesAIPayload {
             return speciesObjectSchema()
         }
@@ -951,91 +852,100 @@ final class GardenAIService {
         return nil
     }
 
-    private func plantAIResponseSchema() -> Schema {
-        let properties: [String: Schema] = [
-            "nomLatin": Schema(type: .string),
-            "famille": Schema(type: .string),
-            "description": Schema(type: .string),
-            "rusticite": Schema(type: .string),
-            "besoinsEau": Schema(type: .string),
-            "expositionSoleil": Schema(type: .string)
+    private func plantAIResponseSchema() -> [String: CanopyJSONValue] {
+        let properties: [String: CanopyJSONValue] = [
+            "nomLatin": stringSchema(nullable: false),
+            "famille": stringSchema(nullable: false),
+            "description": stringSchema(nullable: false),
+            "rusticite": stringSchema(nullable: false),
+            "besoinsEau": stringSchema(nullable: false),
+            "expositionSoleil": stringSchema(nullable: false)
         ]
-        return Schema(
-            type: .object,
+        return objectSchema(
             properties: properties,
             requiredProperties: Array(properties.keys)
         )
     }
 
-    private func speciesObjectSchema() -> Schema {
-        let properties: [String: Schema] = [
-            "commonName": nullableStringSchema(),
-            "nomLatin": nullableStringSchema(),
-            "famille": nullableStringSchema(),
-            "genre": nullableStringSchema(),
-            "strate": nullableStringSchema(),
-            "tags": nullableStringSchema(),
-            "notes": nullableStringSchema(),
-            "imageURL": nullableStringSchema(),
-            "origine": nullableStringSchema(),
-            "typePlante": nullableStringSchema(),
-            "morphologie": nullableStringSchema(),
-            "culture": nullableStringSchema(),
-            "usages": nullableStringSchema(),
-            "niveauMellifere": nullableStringSchema(),
-            "interetOrnemental": nullableStringSchema(),
-            "longeviteMin": nullableStringSchema(),
-            "longeviteMax": nullableStringSchema(),
-            "hauteurMin": nullableStringSchema(),
-            "hauteurMax": nullableStringSchema(),
-            "periodeFloraison": nullableStringSchema(),
-            "periodeFructification": nullableStringSchema()
+    private func speciesObjectSchema() -> [String: CanopyJSONValue] {
+        let properties: [String: CanopyJSONValue] = [
+            "commonName": stringSchema(nullable: true),
+            "nomLatin": stringSchema(nullable: true),
+            "famille": stringSchema(nullable: true),
+            "genre": stringSchema(nullable: true),
+            "strate": stringSchema(nullable: true),
+            "tags": stringSchema(nullable: true),
+            "notes": stringSchema(nullable: true),
+            "imageURL": stringSchema(nullable: true),
+            "origine": stringSchema(nullable: true),
+            "typePlante": stringSchema(nullable: true),
+            "morphologie": stringSchema(nullable: true),
+            "culture": stringSchema(nullable: true),
+            "usages": stringSchema(nullable: true),
+            "niveauMellifere": stringSchema(nullable: true),
+            "interetOrnemental": stringSchema(nullable: true),
+            "longeviteMin": stringSchema(nullable: true),
+            "longeviteMax": stringSchema(nullable: true),
+            "hauteurMin": stringSchema(nullable: true),
+            "hauteurMax": stringSchema(nullable: true),
+            "periodeFloraison": stringSchema(nullable: true),
+            "periodeFructification": stringSchema(nullable: true)
         ]
-        return Schema(
-            type: .object,
+        return objectSchema(
             properties: properties,
             requiredProperties: Array(properties.keys)
         )
     }
 
-    private func cultivarPayloadSchema() -> Schema {
-        let cultivarProperties: [String: Schema] = [
-            "nom": nullableStringSchema(),
-            "notes": nullableStringSchema(),
-            "tags": nullableStringSchema(),
-            "origine": nullableStringSchema(),
-            "typePlante": nullableStringSchema(),
-            "morphologie": nullableStringSchema(),
-            "culture": nullableStringSchema(),
-            "usages": nullableStringSchema(),
-            "niveauMellifere": nullableStringSchema(),
-            "interetOrnemental": nullableStringSchema(),
-            "longeviteMin": nullableStringSchema(),
-            "longeviteMax": nullableStringSchema(),
-            "hauteurMin": nullableStringSchema(),
-            "hauteurMax": nullableStringSchema(),
-            "periodeFloraison": nullableStringSchema(),
-            "periodeFructification": nullableStringSchema()
+    private func cultivarPayloadSchema() -> [String: CanopyJSONValue] {
+        let cultivarProperties: [String: CanopyJSONValue] = [
+            "nom": stringSchema(nullable: true),
+            "notes": stringSchema(nullable: true),
+            "tags": stringSchema(nullable: true),
+            "origine": stringSchema(nullable: true),
+            "typePlante": stringSchema(nullable: true),
+            "morphologie": stringSchema(nullable: true),
+            "culture": stringSchema(nullable: true),
+            "usages": stringSchema(nullable: true),
+            "niveauMellifere": stringSchema(nullable: true),
+            "interetOrnemental": stringSchema(nullable: true),
+            "longeviteMin": stringSchema(nullable: true),
+            "longeviteMax": stringSchema(nullable: true),
+            "hauteurMin": stringSchema(nullable: true),
+            "hauteurMax": stringSchema(nullable: true),
+            "periodeFloraison": stringSchema(nullable: true),
+            "periodeFructification": stringSchema(nullable: true)
         ]
 
-        let cultivarSchema = Schema(
-            type: .object,
+        let cultivarSchema = objectSchema(
             properties: cultivarProperties,
             requiredProperties: Array(cultivarProperties.keys)
         )
 
-        return Schema(
-            type: .object,
+        return objectSchema(
             properties: [
-                "species": speciesObjectSchema(),
-                "cultivar": cultivarSchema
+                "species": .object(speciesObjectSchema()),
+                "cultivar": .object(cultivarSchema)
             ],
             requiredProperties: ["species", "cultivar"]
         )
     }
 
-    private func nullableStringSchema() -> Schema {
-        Schema(type: .string, nullable: true)
+    private func objectSchema(
+        properties: [String: CanopyJSONValue],
+        requiredProperties: [String]
+    ) -> [String: CanopyJSONValue] {
+        [
+            "type": .string("OBJECT"),
+            "properties": .object(properties),
+            "required": .array(requiredProperties.map { .string($0) })
+        ]
+    }
+
+    private func stringSchema(nullable: Bool) -> CanopyJSONValue {
+        .object([
+            "type": .string("STRING"),
+            "nullable": .bool(nullable)
+        ])
     }
 }
-

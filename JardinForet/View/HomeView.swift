@@ -8,34 +8,43 @@
 import SwiftUI
 
 struct HomeView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     @EnvironmentObject var workspaceStore: CanopyWorkspaceStore
+    @State private var pendingPlantEditor: GardenPlant?
+    @State private var homeBrief: HomeBriefBundle?
+    @State private var isLoadingHomeBrief = false
+    @State private var homeBriefError: String?
+    private let attentionAdvisor = HomeAttentionAdvisor()
+    private let homeBriefService = HomeBriefingService.shared
 
     var body: some View {
+        Group {
 #if os(macOS)
-        macOSBody
+            macOSBody
 #else
-        iOSBody
+            iOSBody
 #endif
+        }
+        .task(id: workspaceStore.selectedSiteID) {
+            await refreshHomeBrief()
+        }
+        .sheet(item: $pendingPlantEditor) { plant in
+            NavigationStack {
+                PlantFormView(mode: .edit(plant: plant))
+                    .environmentObject(store)
+            }
+        }
     }
 
     @ViewBuilder
     private var iOSBody: some View {
         let stats = store.fetchStats()
+        let importantItems = displayedImportantPlantTasks
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-
-                // En-tête compact
+        CanopyScreen {
+            VStack(alignment: .leading, spacing: CanopySpacing.lg) {
                 HStack(alignment: .center, spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.accentPrimary.opacity(0.12))
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "leaf.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.accentPrimary)
-                    }
+                    CanopyIconBadge(systemImage: "leaf.fill", size: CanopyIconSize.card)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(workspaceStore.selectedSiteName)
                             .font(.title2).bold()
@@ -47,10 +56,13 @@ struct HomeView: View {
                 .padding(.top, 8)
 
                 syncPanel
+                homeBriefSection
 
-                // Actions principales
-                Text("Actions rapides")
-                    .font(.headline)
+                if !importantItems.isEmpty {
+                    importantActionsSection(items: importantItems, totalCount: importantPlantTasks.count)
+                }
+
+                CanopySectionHeader(title: "Actions rapides")
 
                 LazyVGrid(columns: [GridItem(.flexible()),
                                     GridItem(.flexible())],
@@ -107,9 +119,7 @@ struct HomeView: View {
                     }
                 }
 
-                // Statistiques synthétiques
-                Text("Le jardin en un coup d’œil")
-                    .font(.headline)
+                CanopySectionHeader(title: "Le jardin en un coup d’œil")
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -121,7 +131,6 @@ struct HomeView: View {
                     .padding(.vertical, 2)
                 }
 
-                // Cartes d’information
                 VStack(alignment: .leading, spacing: 12) {
                     InfoCard(
                         title: "À propos du jardin",
@@ -137,15 +146,13 @@ struct HomeView: View {
 
                 Spacer(minLength: 8)
             }
-            .padding(.horizontal)
-            .padding(.bottom, 16)
         }
-        .background(Color.appBackground.ignoresSafeArea())
     }
 
     @ViewBuilder
     private var macOSBody: some View {
         let stats = store.fetchStats()
+        let importantItems = displayedImportantPlantTasks
 
         GeometryReader { proxy in
             ZStack {
@@ -179,6 +186,11 @@ struct HomeView: View {
                         .padding(.top, 4)
 
                     syncPanel
+                    homeBriefSection
+
+                    if !importantItems.isEmpty {
+                        importantActionsSection(items: importantItems, totalCount: importantPlantTasks.count)
+                    }
 
                     // Corps en deux colonnes aérées
                     HStack(alignment: .top, spacing: 32) {
@@ -365,32 +377,71 @@ struct HomeView: View {
     private var syncPanel: some View {
         let status = syncStatusPresentation(for: store.lastSyncMessage)
 
-        return HStack(alignment: .center, spacing: 10) {
-            Button {
-                store.forceSyncNow()
-            } label: {
-                Label(
-                    store.isSyncing ? "Synchro..." : "Forcer la synchro",
-                    systemImage: "arrow.triangle.2.circlepath"
+        return CanopyCard(title: "Synchronisation", subtitle: "Projection locale et Supabase", systemImage: "arrow.triangle.2.circlepath") {
+            HStack(alignment: .center, spacing: 10) {
+                Button {
+                    store.forceSyncNow()
+                } label: {
+                    Label(
+                        store.isSyncing ? "Synchro..." : "Forcer la synchro",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                }
+                .canopyPrimaryActionStyle()
+                .disabled(store.isSyncing)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    if let status {
+                        Text(status.text)
+                            .font(.caption)
+                            .foregroundColor(status.color)
+                    }
+                    if let lastSyncDate = store.lastSyncDate {
+                        Text("Dernière synchro: \(syncDateFormatter.string(from: lastSyncDate))")
+                            .font(.caption2)
+                            .foregroundColor(.textSecondary)
+                    }
+                }
+
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var homeBriefSection: some View {
+        VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+            CanopySectionHeader(
+                title: "Brief du jour",
+                subtitle: "Meteo, gel et priorites de terrain"
+            )
+
+            if let homeBrief {
+                HomeBriefCard(
+                    bundle: homeBrief,
+                    isRefreshing: isLoadingHomeBrief,
+                    onRefresh: {
+                        Task { await refreshHomeBrief(force: true) }
+                    }
                 )
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(store.isSyncing)
-
-            VStack(alignment: .leading, spacing: 2) {
-                if let status {
-                    Text(status.text)
-                        .font(.caption)
-                        .foregroundColor(status.color)
+            } else if isLoadingHomeBrief {
+                CanopyCard(title: "Brief du jour", subtitle: "Chargement...", systemImage: "cloud.sun") {
+                    ProgressView("Preparation du contexte meteo et terrain...")
+                        .font(.subheadline)
                 }
-                if let lastSyncDate = store.lastSyncDate {
-                    Text("Dernière synchro: \(syncDateFormatter.string(from: lastSyncDate))")
-                        .font(.caption2)
-                        .foregroundColor(.textSecondary)
+            } else if let homeBriefError {
+                CanopyCard(title: "Brief du jour", subtitle: "Impossible de charger le brief", systemImage: "exclamationmark.triangle") {
+                    VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                        Text(homeBriefError)
+                            .font(.subheadline)
+                            .foregroundColor(.textSecondary)
+                        Button("Reessayer") {
+                            Task { await refreshHomeBrief(force: true) }
+                        }
+                        .canopySecondaryActionStyle()
+                    }
                 }
             }
-
-            Spacer()
         }
     }
 
@@ -430,6 +481,81 @@ struct HomeView: View {
         formatter.timeStyle = .short
         return formatter
     }
+
+    private var importantPlantTasks: [HomePlantAttentionItem] {
+        attentionAdvisor.prioritize(
+            plants: store.plants,
+            isPlantsModuleEnabled: workspaceStore.isModuleEnabled("plants")
+        )
+    }
+
+    private var displayedImportantPlantTasks: [HomePlantAttentionItem] {
+        Array(importantPlantTasks.prefix(4))
+    }
+
+    @ViewBuilder
+    private func importantActionsSection(items: [HomePlantAttentionItem], totalCount: Int) -> some View {
+        VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+            CanopySectionHeader(
+                title: "Actions importantes",
+                subtitle: importantActionsSubtitle(totalCount: totalCount)
+            )
+
+            VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                ForEach(items) { item in
+                    PlantAttentionCard(item: item) {
+                        pendingPlantEditor = item.plant
+                    }
+                }
+            }
+
+            let remainingCount = totalCount - items.count
+            if remainingCount > 0 {
+                NavigationLink(destination: PlantsListView()) {
+                    Label(
+                        "\(remainingCount) autre\(remainingCount > 1 ? "s" : "") individu\(remainingCount > 1 ? "s" : "") à compléter",
+                        systemImage: "list.bullet"
+                    )
+                    .font(.footnote.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentPrimary)
+            }
+        }
+    }
+
+    private func importantActionsSubtitle(totalCount: Int) -> String {
+        if totalCount == 1 {
+            return "1 individu doit encore être qualifié ou positionné pour garder un suivi fiable."
+        }
+
+        return "\(totalCount) individus demandent encore une action de terrain prioritaire."
+    }
+
+    @MainActor
+    private func refreshHomeBrief(force: Bool = false) async {
+        guard let siteID = workspaceStore.selectedSiteID, !siteID.isEmpty else {
+            homeBrief = nil
+            homeBriefError = nil
+            isLoadingHomeBrief = false
+            return
+        }
+
+        if !force, homeBrief?.context.site.id == siteID {
+            return
+        }
+
+        isLoadingHomeBrief = true
+        defer { isLoadingHomeBrief = false }
+
+        do {
+            let loaded = try await homeBriefService.fetch(siteID: siteID)
+            homeBrief = loaded
+            homeBriefError = nil
+        } catch {
+            homeBriefError = error.localizedDescription
+        }
+    }
 }
 
 struct ActionCard: View {
@@ -438,22 +564,9 @@ struct ActionCard: View {
     let systemImage: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundColor(.accentPrimary)
-
-            Text(title)
-                .font(.headline)
-                .foregroundColor(.textPrimary)
-
-            Text(subtitle)
-                .font(.footnote)
-                .foregroundColor(.textSecondary)
+        CanopyCard(title: title, subtitle: subtitle, systemImage: systemImage) {
+            EmptyView()
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .liquidGlassCard(cornerRadius: 16)
     }
 }
 
@@ -465,7 +578,7 @@ struct StatChip: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: CanopyIconSize.inline, weight: .medium))
                 .foregroundColor(.accentPrimary)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -493,28 +606,12 @@ struct InfoCard: View {
     let text: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill(Color.accentPrimary.opacity(0.1))
-                    .frame(width: 30, height: 30)
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.accentPrimary)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline).bold()
-                Text(text)
-                    .font(.footnote)
-                    .foregroundColor(.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        CanopyCard(title: title, systemImage: systemImage) {
+            Text(text)
+                .font(.footnote)
+                .foregroundColor(.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .liquidGlassCard(cornerRadius: 14)
     }
 }
 
@@ -542,5 +639,265 @@ struct StatCard: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .liquidGlassCard(cornerRadius: 16)
+    }
+}
+
+private struct PlantAttentionCard: View {
+    let item: HomePlantAttentionItem
+    let onEdit: () -> Void
+
+    var body: some View {
+        CanopyCard(
+            title: item.displayTitle,
+            subtitle: item.subtitle,
+            systemImage: "checklist"
+        ) {
+            VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                Text(item.summary)
+                    .font(.subheadline)
+                    .foregroundColor(.textPrimary)
+
+                HStack(spacing: CanopySpacing.xs) {
+                    ForEach(item.missingLabels, id: \.self) { label in
+                        Text(label.uppercased())
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.accentPrimary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color.accentPrimary.opacity(0.10))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.accentPrimary.opacity(0.25), lineWidth: 1)
+                            )
+                    }
+                }
+
+                if let suggestedSpread = item.suggestedSpread {
+                    Text("Suggestion d’envergure de départ: \(metersLabel(suggestedSpread))")
+                        .font(.caption)
+                        .foregroundColor(.textSecondary)
+                }
+
+                Button("Compléter la fiche", action: onEdit)
+                    .canopyPrimaryActionStyle()
+            }
+        }
+    }
+
+    private func metersLabel(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        return "\(rounded.formatted(.number.precision(.fractionLength(0 ... 1)))) m"
+    }
+}
+
+private struct HomeBriefCard: View {
+    let bundle: HomeBriefBundle
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
+
+    var body: some View {
+        let briefing = bundle.briefing
+        let context = bundle.context
+
+        CanopyCard(
+            title: "Meteo et priorites",
+            subtitle: bundle.llm.generated ? "Synthese reformulee avec Gemini" : "Synthese deterministe temporaire",
+            systemImage: "cloud.sun"
+        ) {
+            VStack(alignment: .leading, spacing: CanopySpacing.md) {
+                HStack(alignment: .top, spacing: CanopySpacing.sm) {
+                    weatherBlock(title: "Aujourd'hui", lines: [
+                        briefing.weatherToday.label,
+                        temperatureLine(min: briefing.weatherToday.tMinC, max: briefing.weatherToday.tMaxC),
+                        compactMetric(label: "Pluie", value: briefing.weatherToday.precipMM, suffix: " mm"),
+                        compactMetric(label: "Vent", value: briefing.weatherToday.windKMH, suffix: " km/h"),
+                    ])
+
+                    weatherBlock(title: "Gel", lines: [
+                        briefing.frostRisk.label,
+                        briefing.frostRisk.nextFrostAt.map { "Prochain gel estime: \(formatDateTime($0))" } ?? "Pas de gel prevu a court terme",
+                        briefing.frostRisk.forecastMinC48H.map { "Min 48 h: \(metersOrTempLabel($0, suffix: " C"))" } ?? "Min 48 h: n/d",
+                        "Sujets sensibles: \(context.frostRisk.sensitiveIndividualsCount)",
+                    ])
+                }
+
+                if !briefing.alerts.isEmpty {
+                    homeBriefSubsection(title: "Alertes") {
+                        ForEach(briefing.alerts) { alert in
+                            VStack(alignment: .leading, spacing: CanopySpacing.xxs) {
+                                Text(alert.label)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(color(for: alert.severity))
+                                Text(alert.reason)
+                                    .font(.caption)
+                                    .foregroundColor(.textSecondary)
+                            }
+                        }
+                    }
+                }
+
+                if !briefing.tasks.isEmpty {
+                    homeBriefSubsection(title: "Actions") {
+                        ForEach(briefing.tasks) { task in
+                            HStack(alignment: .top, spacing: CanopySpacing.sm) {
+                                Text(task.priority.uppercased())
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundColor(color(for: task.priority))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 4)
+                                    .background(Capsule().fill(color(for: task.priority).opacity(0.12)))
+                                VStack(alignment: .leading, spacing: CanopySpacing.xxs) {
+                                    Text(task.label)
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundColor(.textPrimary)
+                                    if let targetCount = task.targetCount {
+                                        Text("\(targetCount) element\(targetCount > 1 ? "s" : "") concerne\(targetCount > 1 ? "s" : "")")
+                                            .font(.caption)
+                                            .foregroundColor(.textSecondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !briefing.fieldChecks.isEmpty {
+                    homeBriefSubsection(title: "Verifications terrain") {
+                        ForEach(briefing.fieldChecks, id: \.self) { check in
+                            Label(check, systemImage: "scope")
+                                .font(.subheadline)
+                                .foregroundColor(.textPrimary)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: CanopySpacing.xs) {
+                    Text("Synthese")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.textPrimary)
+                    Text(briefing.summary)
+                        .font(.subheadline)
+                        .foregroundColor(.textSecondary)
+                    HStack(spacing: CanopySpacing.sm) {
+                        Text("Confiance: \(briefing.confidence.capitalized)")
+                            .font(.caption)
+                            .foregroundColor(.textSecondary)
+                        if let provider = bundle.llm.provider, !provider.isEmpty {
+                            Text(bundle.llm.generated ? "Source: \(provider)" : "Fallback: \(provider)")
+                                .font(.caption)
+                                .foregroundColor(.textSecondary)
+                        }
+                    }
+                }
+
+                HStack(spacing: CanopySpacing.sm) {
+                    Button {
+                        onRefresh()
+                    } label: {
+                        Label(isRefreshing ? "Actualisation..." : "Actualiser le brief", systemImage: "arrow.clockwise")
+                    }
+                    .canopySecondaryActionStyle()
+                    .disabled(isRefreshing)
+
+                    Spacer()
+
+                    Text("Genere le \(formatDateTime(context.generatedAt))")
+                        .font(.caption2)
+                        .foregroundColor(.textSecondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func homeBriefSubsection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: CanopySpacing.xs) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.textPrimary)
+            VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                content()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func weatherBlock(title: String, lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: CanopySpacing.xs) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.textPrimary)
+            ForEach(lines.filter { !$0.isEmpty }, id: \.self) { line in
+                Text(line)
+                    .font(.subheadline)
+                    .foregroundColor(.textSecondary)
+            }
+        }
+        .padding(CanopySpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: CanopyCornerRadius.sm, style: .continuous)
+                .fill(Color.cardBackground.opacity(0.7))
+        )
+    }
+
+    private func temperatureLine(min: Double?, max: Double?) -> String {
+        "Min \(metersOrTempLabel(min, suffix: " C")) / Max \(metersOrTempLabel(max, suffix: " C"))"
+    }
+
+    private func compactMetric(label: String, value: Double?, suffix: String) -> String {
+        "\(label): \(metersOrTempLabel(value, suffix: suffix))"
+    }
+
+    private func metersOrTempLabel(_ value: Double?, suffix: String) -> String {
+        guard let value else { return "n/d" }
+        return "\(formatNumber(value))\(suffix)"
+    }
+
+    private func formatNumber(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+        return String(format: "%.1f", value)
+    }
+
+    private func formatDateTime(_ raw: String) -> String {
+        let date = isoFormatter.date(from: raw) ?? fallbackISOFormatter.date(from: raw)
+        guard let date else { return raw }
+        return displayFormatter.string(from: date)
+    }
+
+    private func color(for severity: String) -> Color {
+        switch severity.lowercased() {
+        case "high":
+            return .red
+        case "medium":
+            return .orange
+        default:
+            return .accentPrimary
+        }
+    }
+
+    private var isoFormatter: ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
+
+    private var fallbackISOFormatter: ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }
+
+    private var displayFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateStyle = .short
+        formatter.timeStyle = .short
+        return formatter
     }
 }

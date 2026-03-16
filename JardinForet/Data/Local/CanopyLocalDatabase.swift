@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-struct LocalV2OutboxItem: FetchableRecord, Decodable {
+struct CanopyLocalOutboxItem: FetchableRecord, Decodable {
     let id: Int64
     let siteID: String
     let entityType: String
@@ -29,14 +29,14 @@ struct LocalV2OutboxItem: FetchableRecord, Decodable {
     }
 }
 
-final class LocalV2Database {
+final class CanopyLocalDatabase {
     private let dbPool: DatabasePool
     private let encoder = JSONEncoder()
 
     init() throws {
         let dbURL = try Self.resolveDatabaseURL()
-        dbPool = try DatabasePool(path: dbURL.path, configuration: LocalV2Schema.makeConfiguration())
-        let migrator = LocalV2Schema.makeMigrator()
+        dbPool = try DatabasePool(path: dbURL.path, configuration: CanopyLocalSchema.makeConfiguration())
+        let migrator = CanopyLocalSchema.makeMigrator()
         try migrator.migrate(dbPool)
     }
 
@@ -48,13 +48,20 @@ final class LocalV2Database {
             appropriateFor: nil,
             create: true
         )
-        return docsURL.appendingPathComponent(LocalV2Schema.databaseFileName)
+        let dbURL = docsURL.appendingPathComponent(CanopyLocalSchema.databaseFileName)
+        let previousURL = docsURL.appendingPathComponent(CanopyLocalSchema.previousDatabaseFileName)
+
+        if !fm.fileExists(atPath: dbURL.path), fm.fileExists(atPath: previousURL.path) {
+            try fm.moveItem(at: previousURL, to: dbURL)
+        }
+
+        return dbURL
     }
 
-    func fetchSpeciesPrivateActive(siteID: String?) throws -> [LocalV2SpeciesPrivateRecord] {
+    func fetchSpeciesPrivateActive(siteID: String?) throws -> [CanopyLocalSpeciesRecord] {
         try dbPool.read { db in
             if let siteID, !siteID.isEmpty {
-                return try LocalV2SpeciesPrivateRecord.fetchAll(
+                return try CanopyLocalSpeciesRecord.fetchAll(
                     db,
                     sql: """
                       SELECT *
@@ -67,7 +74,7 @@ final class LocalV2Database {
                 )
             }
 
-            return try LocalV2SpeciesPrivateRecord.fetchAll(
+            return try CanopyLocalSpeciesRecord.fetchAll(
                 db,
                 sql: """
                   SELECT *
@@ -79,10 +86,10 @@ final class LocalV2Database {
         }
     }
 
-    func fetchIndividualsActive(siteID: String?) throws -> [LocalV2IndividualRecord] {
+    func fetchIndividualsActive(siteID: String?) throws -> [CanopyLocalIndividualRecord] {
         try dbPool.read { db in
             if let siteID, !siteID.isEmpty {
-                return try LocalV2IndividualRecord.fetchAll(
+                return try CanopyLocalIndividualRecord.fetchAll(
                     db,
                     sql: """
                       SELECT *
@@ -95,7 +102,7 @@ final class LocalV2Database {
                 )
             }
 
-            return try LocalV2IndividualRecord.fetchAll(
+            return try CanopyLocalIndividualRecord.fetchAll(
                 db,
                 sql: """
                   SELECT *
@@ -107,10 +114,10 @@ final class LocalV2Database {
         }
     }
 
-    func fetchCultivarsActive(siteID: String?) throws -> [LocalV2CultivarRecord] {
+    func fetchCultivarsActive(siteID: String?) throws -> [CanopyLocalCultivarRecord] {
         try dbPool.read { db in
             if let siteID, !siteID.isEmpty {
-                return try LocalV2CultivarRecord.fetchAll(
+                return try CanopyLocalCultivarRecord.fetchAll(
                     db,
                     sql: """
                       SELECT *
@@ -123,7 +130,7 @@ final class LocalV2Database {
                 )
             }
 
-            return try LocalV2CultivarRecord.fetchAll(
+            return try CanopyLocalCultivarRecord.fetchAll(
                 db,
                 sql: """
                   SELECT *
@@ -135,9 +142,9 @@ final class LocalV2Database {
         }
     }
 
-    func fetchSpeciesPrivateRecord(remoteID: String) throws -> LocalV2SpeciesPrivateRecord? {
+    func fetchSpeciesPrivateRecord(remoteID: String) throws -> CanopyLocalSpeciesRecord? {
         try dbPool.read { db in
-            try LocalV2SpeciesPrivateRecord.fetchOne(
+            try CanopyLocalSpeciesRecord.fetchOne(
                 db,
                 sql: """
                   SELECT *
@@ -150,9 +157,9 @@ final class LocalV2Database {
         }
     }
 
-    func fetchCultivarRecord(remoteID: String) throws -> LocalV2CultivarRecord? {
+    func fetchCultivarRecord(remoteID: String) throws -> CanopyLocalCultivarRecord? {
         try dbPool.read { db in
-            try LocalV2CultivarRecord.fetchOne(
+            try CanopyLocalCultivarRecord.fetchOne(
                 db,
                 sql: """
                   SELECT *
@@ -165,9 +172,9 @@ final class LocalV2Database {
         }
     }
 
-    func fetchIndividualRecord(remoteID: String) throws -> LocalV2IndividualRecord? {
+    func fetchIndividualRecord(remoteID: String) throws -> CanopyLocalIndividualRecord? {
         try dbPool.read { db in
-            try LocalV2IndividualRecord.fetchOne(
+            try CanopyLocalIndividualRecord.fetchOne(
                 db,
                 sql: """
                   SELECT *
@@ -206,7 +213,7 @@ final class LocalV2Database {
         try dbPool.read { db in
             try String.fetchOne(
                 db,
-                sql: "SELECT last_synced_at FROM sync_state_v2 WHERE table_name = ?",
+                sql: "SELECT last_synced_at FROM \(CanopyLocalSchema.syncStateTableName) WHERE table_name = ?",
                 arguments: [tableName]
             )
         }
@@ -217,7 +224,7 @@ final class LocalV2Database {
         try dbPool.write { db in
             try db.execute(
                 sql: """
-                  INSERT INTO sync_state_v2(table_name, last_synced_at, updated_at)
+                  INSERT INTO \(CanopyLocalSchema.syncStateTableName)(table_name, last_synced_at, updated_at)
                   VALUES (?, ?, ?)
                   ON CONFLICT(table_name) DO UPDATE SET
                     last_synced_at = excluded.last_synced_at,
@@ -458,6 +465,8 @@ final class LocalV2Database {
         let locationLatKey = CanopySchema.IndividualsFields.locationLat
         let locationLngKey = CanopySchema.IndividualsFields.locationLng
         let locationAltKey = CanopySchema.IndividualsFields.locationAlt
+        let heightCurrentKey = CanopySchema.IndividualsFields.heightCurrent
+        let envergureCurrentKey = CanopySchema.IndividualsFields.envergureCurrent
         let zoneKey = CanopySchema.IndividualsFields.zone
         let notesKey = CanopySchema.IndividualsFields.notes
         let tagsKey = CanopySchema.IndividualsFields.tags
@@ -492,6 +501,8 @@ final class LocalV2Database {
                         location_lat,
                         location_lng,
                         location_alt,
+                        height_current,
+                        envergure_current,
                         zone,
                         notes,
                         tags_json,
@@ -500,7 +511,7 @@ final class LocalV2Database {
                         updated_at,
                         deleted_at
                       )
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                       ON CONFLICT(remote_id) DO UPDATE SET
                         site_id = excluded.site_id,
                         species_global_id = excluded.species_global_id,
@@ -514,6 +525,8 @@ final class LocalV2Database {
                         location_lat = excluded.location_lat,
                         location_lng = excluded.location_lng,
                         location_alt = excluded.location_alt,
+                        height_current = excluded.height_current,
+                        envergure_current = excluded.envergure_current,
                         zone = excluded.zone,
                         notes = excluded.notes,
                         tags_json = excluded.tags_json,
@@ -536,6 +549,8 @@ final class LocalV2Database {
                         row[locationLatKey]?.doubleValue,
                         row[locationLngKey]?.doubleValue,
                         row[locationAltKey]?.doubleValue,
+                        row[heightCurrentKey]?.doubleValue,
+                        row[envergureCurrentKey]?.doubleValue,
                         row[zoneKey]?.stringValue,
                         row[notesKey]?.stringValue,
                         tagsJSON,
@@ -581,7 +596,7 @@ final class LocalV2Database {
         return try dbPool.write { db in
             try db.execute(
                 sql: """
-                  INSERT INTO sync_outbox_v2(
+                  INSERT INTO \(CanopyLocalSchema.syncOutboxTableName)(
                     site_id,
                     entity_type,
                     entity_remote_id,
@@ -600,13 +615,13 @@ final class LocalV2Database {
         }
     }
 
-    func fetchPendingOutbox(limit: Int = 100) throws -> [LocalV2OutboxItem] {
+    func fetchPendingOutbox(limit: Int = 100) throws -> [CanopyLocalOutboxItem] {
         try dbPool.read { db in
-            try LocalV2OutboxItem.fetchAll(
+            try CanopyLocalOutboxItem.fetchAll(
                 db,
                 sql: """
                   SELECT *
-                  FROM sync_outbox_v2
+                  FROM \(CanopyLocalSchema.syncOutboxTableName)
                   WHERE status = 'pending'
                   ORDER BY id ASC
                   LIMIT ?
@@ -621,7 +636,7 @@ final class LocalV2Database {
         try dbPool.write { db in
             try db.execute(
                 sql: """
-                  UPDATE sync_outbox_v2
+                  UPDATE \(CanopyLocalSchema.syncOutboxTableName)
                   SET status = 'done',
                       updated_at = ?,
                       last_error = NULL
@@ -637,7 +652,7 @@ final class LocalV2Database {
         try dbPool.write { db in
             try db.execute(
                 sql: """
-                  UPDATE sync_outbox_v2
+                  UPDATE \(CanopyLocalSchema.syncOutboxTableName)
                   SET attempt_count = attempt_count + 1,
                       last_error = ?,
                       updated_at = ?,

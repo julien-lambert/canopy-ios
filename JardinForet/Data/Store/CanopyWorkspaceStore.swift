@@ -28,14 +28,14 @@ final class CanopyWorkspaceStore: ObservableObject {
     @Published var errorMessage: String?
 
     private let remoteClient: CanopyRemoteClient
-    private let localV2DB: LocalV2Database?
+    private let localDB: CanopyLocalDatabase?
 
     init(
         remoteClient: CanopyRemoteClient = CanopyRemoteClient(),
-        localV2DB: LocalV2Database? = try? LocalV2Database()
+        localDB: CanopyLocalDatabase? = try? CanopyLocalDatabase()
     ) {
         self.remoteClient = remoteClient
-        self.localV2DB = localV2DB
+        self.localDB = localDB
     }
 
     var selectedSite: SiteSummary? {
@@ -104,7 +104,7 @@ final class CanopyWorkspaceStore: ObservableObject {
     func selectSite(_ siteID: String) async {
         guard selectedSiteID != siteID else { return }
         selectedSiteID = siteID
-        try? localV2DB?.setCurrentSiteID(siteID)
+        try? localDB?.setCurrentSiteID(siteID)
         await reloadModulesForSelectedSite()
     }
 
@@ -193,18 +193,18 @@ final class CanopyWorkspaceStore: ObservableObject {
 
     private func chooseSelectedSiteID(from sites: [SiteSummary]) async throws -> String? {
         if let selectedSiteID, sites.contains(where: { $0.id == selectedSiteID }) {
-            try localV2DB?.setCurrentSiteID(selectedSiteID)
+            try localDB?.setCurrentSiteID(selectedSiteID)
             return selectedSiteID
         }
 
-        if let localSiteID = try localV2DB?.currentSiteID(),
+        if let localSiteID = try localDB?.currentSiteID(),
            sites.contains(where: { $0.id == localSiteID }) {
-            try localV2DB?.setCurrentSiteID(localSiteID)
+            try localDB?.setCurrentSiteID(localSiteID)
             return localSiteID
         }
 
         let first = sites.first?.id
-        try localV2DB?.setCurrentSiteID(first)
+        try localDB?.setCurrentSiteID(first)
         return first
     }
 

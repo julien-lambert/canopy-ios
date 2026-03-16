@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Formulaire d’édition / création d’une espèce (tronc commun uniquement).
 struct SpeciesFormView: View {
-    @EnvironmentObject private var store: GardenStore
+    @EnvironmentObject private var store: CanopyStore
     @Environment(\.dismiss) private var dismiss
 
     /// Espèce complète passée par la fiche détail.
@@ -31,6 +31,8 @@ struct SpeciesFormView: View {
     @State private var lifespanMax: String
     @State private var heightMin: String
     @State private var heightMax: String
+    @State private var envergureMin: String
+    @State private var envergureMax: String
     @State private var floweringPeriod: String
     @State private var fruitingPeriod: String
     @State private var isAIFilling = false
@@ -100,6 +102,8 @@ struct SpeciesFormView: View {
         _lifespanMax = State(initialValue: existingSpecies?.lifespanMax.map(String.init) ?? "")
         _heightMin = State(initialValue: existingSpecies?.heightMin.map { String(format: "%.2f", $0) } ?? "")
         _heightMax = State(initialValue: existingSpecies?.heightMax.map { String(format: "%.2f", $0) } ?? "")
+        _envergureMin = State(initialValue: existingSpecies?.spreadMin.map { String(format: "%.2f", $0) } ?? "")
+        _envergureMax = State(initialValue: existingSpecies?.spreadMax.map { String(format: "%.2f", $0) } ?? "")
         _floweringPeriod = State(initialValue: existingSpecies?.floweringPeriod ?? "")
         _fruitingPeriod = State(initialValue: existingSpecies?.fruitingPeriod ?? "")
     }
@@ -216,6 +220,18 @@ struct SpeciesFormView: View {
 #endif
                 }
 
+                HStack {
+                    TextField("Envergure min (m)", text: $envergureMin)
+#if os(iOS)
+                        .keyboardType(.decimalPad)
+#endif
+                    Text("–")
+                    TextField("max", text: $envergureMax)
+#if os(iOS)
+                        .keyboardType(.decimalPad)
+#endif
+                }
+
                 TextField("Période de floraison", text: $floweringPeriod)
                 TextField("Période de fructification", text: $fruitingPeriod)
             }
@@ -227,14 +243,6 @@ struct SpeciesFormView: View {
                     .textInputAutocapitalization(.none)
 #endif
                 TextField("Tags (séparés par , ; |)", text: $tags)
-            }
-
-            Section {
-                Button(action: saveSpecies) {
-                    Text(existingSpecies == nil ? "Créer l’espèce" : "Enregistrer les modifications")
-                        .fontWeight(.semibold)
-                }
-                .disabled(commonName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
             if let existing = existingSpecies {
@@ -259,6 +267,12 @@ struct SpeciesFormView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
 #endif
+        .canopyEditorToolbar(
+            saveTitle: existingSpecies == nil ? "Créer" : "Enregistrer",
+            isSaveDisabled: commonName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            onCancel: { dismiss() },
+            onSave: { saveSpecies() }
+        )
         .alert("Erreur IA", isPresented: $showAIErrorAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -305,10 +319,18 @@ struct SpeciesFormView: View {
             return
         }
 
+        func parseDouble(_ value: String) -> Double? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return Double(trimmed.replacingOccurrences(of: ",", with: "."))
+        }
+
         let lfMin = Int(lifespanMin.trimmingCharacters(in: .whitespacesAndNewlines))
         let lfMax = Int(lifespanMax.trimmingCharacters(in: .whitespacesAndNewlines))
-        let hMin = Double(heightMin.trimmingCharacters(in: .whitespacesAndNewlines))
-        let hMax = Double(heightMax.trimmingCharacters(in: .whitespacesAndNewlines))
+        let hMin = parseDouble(heightMin)
+        let hMax = parseDouble(heightMax)
+        let evMin = parseDouble(envergureMin)
+        let evMax = parseDouble(envergureMax)
 
         func trimmedOrNil(_ s: String) -> String? {
             let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -354,6 +376,8 @@ struct SpeciesFormView: View {
                     lifespanMax: lfMax,
                     heightMin: hMin,
                     heightMax: hMax,
+                    envergureMin: evMin,
+                    envergureMax: evMax,
                     floweringPeriod: floweringOrNil,
                     fruitingPeriod: fruitingOrNil
                 )
@@ -381,6 +405,8 @@ struct SpeciesFormView: View {
                     lifespanMax: lfMax,
                     heightMin: hMin,
                     heightMax: hMax,
+                    envergureMin: evMin,
+                    envergureMax: evMax,
                     floweringPeriod: floweringOrNil,
                     fruitingPeriod: fruitingOrNil,
                     varietyNotes: nil

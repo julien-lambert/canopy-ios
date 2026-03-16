@@ -281,7 +281,7 @@ func makePlantLabelEntity(
 // MARK: - Vue SwiftUI
 
 struct VRView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     @State private var selectedPlantIndex: Int = 0
     @State private var resetToggle: Bool = false
 
@@ -373,7 +373,7 @@ struct VRView: View {
 struct ARContainer: UIViewRepresentable {
     typealias UIViewType = ARView
 
-    let store: GardenStore
+    let store: CanopyStore
     @Binding var selectedPlantIndex: Int
     @Binding var resetToggle: Bool
 

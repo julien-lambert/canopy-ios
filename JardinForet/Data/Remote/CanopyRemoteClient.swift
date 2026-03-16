@@ -58,7 +58,7 @@ final class CanopyRemoteClient {
         guard let client else { throw CanopyRemoteClientError.notConfigured }
         try validateExpectedProjectRef()
         do {
-            try await CanopySupabaseAuthBootstrap.shared.ensureAuthenticated(client: client)
+            _ = try await CanopySupabaseAuthBootstrap.shared.ensureAuthenticated(client: client)
         } catch {
             AppLog.error("Supabase auth bootstrap failed: \(error)", category: .network)
             throw CanopyRemoteClientError.notAuthenticated

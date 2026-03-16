@@ -1,34 +1,20 @@
-//
-//  HivesListView.swift
-//  JardinForet
-//
-//  Created by Julien Lambert on 17/11/2025.
-//
-
 import SwiftUI
 
 struct HivesListView: View {
-    @EnvironmentObject var store: GardenStore
-
     var body: some View {
-        List {
-            ForEach(store.fetchHives(), id: \.id) { hive in
-                NavigationLink(destination: HiveDetailView(hiveID: hive.id)) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(hive.name)
-                            .font(.headline)
+        CanopyScreen {
+            CanopyCard(title: "Module apiculture en migration", systemImage: "wrench.and.screwdriver") {
+                Text("Les données ruches ne reposent plus sur l’ancienne base locale. La projection Canopy dédiée n’est pas encore en place, donc le module reste momentanément en lecture indisponible.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
-                        if let breed = hive.beeBreed, !breed.isEmpty {
-                            Text("Abeilles : \(breed)")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if let year = hive.queenYear {
-                            Text("Reine : \(year)")
-                                .font(.caption)
-                        }
-                    }
+            CanopyCard(title: "État", systemImage: "shippingbox") {
+                VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                    CanopyInfoLine(label: "Backend", value: "Module en refonte")
+                    CanopyInfoLine(label: "Base locale", value: "Canopy uniquement")
+                    CanopyInfoLine(label: "Module", value: "À remigrer proprement")
                 }
             }
         }

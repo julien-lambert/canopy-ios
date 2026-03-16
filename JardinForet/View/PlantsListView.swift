@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PlantsListView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     /// Texte de recherche global (sidebar macOS). Par défaut vide pour iOS.
     var searchQuery: String = ""
     /// Texte de recherche local à la vue (champ `.searchable` intégré).
@@ -31,22 +31,36 @@ struct PlantsListView: View {
 
     @ViewBuilder
     private var iOSBody: some View {
-        List {
-            ForEach(groupedPlants, id: \.strata) { section in
-                Section(header: strataHeader(section.strata)) {
-                    ForEach(section.plants) { plant in
-                        NavigationLink(
-                            destination: PlantDetailView(plant: plant)
-                        ) {
-                            PlantRow(plant: plant)
+        Group {
+            if groupedPlants.isEmpty {
+                CanopyScreen {
+                    CanopyEmptyState(
+                        title: "Aucun individu trouvé",
+                        message: effectiveSearchText.isEmpty
+                            ? "Ajoute un individu pour commencer à documenter le site."
+                            : "Aucun individu ne correspond à cette recherche.",
+                        systemImage: "leaf.circle"
+                    )
+                }
+            } else {
+                List {
+                    ForEach(groupedPlants, id: \.strata) { section in
+                        Section(header: strataHeader(section.strata)) {
+                            ForEach(section.plants) { plant in
+                                NavigationLink(
+                                    destination: PlantDetailView(plant: plant)
+                                ) {
+                                    PlantRow(plant: plant)
+                                }
+                                .listRowBackground(Color.clear)
+                            }
                         }
-                        .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.plain)
+                .background(Color.appBackground)
             }
         }
-        .listStyle(.plain)
-        .background(Color.appBackground)
         .searchable(text: $searchText, prompt: "Rechercher un plant")
         .navigationTitle("Plantes")
         .toolbar {
@@ -84,26 +98,40 @@ struct PlantsListView: View {
 
     @ViewBuilder
     private var macOSBody: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                ForEach(groupedPlants, id: \.strata) { section in
-                    VStack(alignment: .leading, spacing: 12) {
-                        strataHeader(section.strata)
-                            .padding(.horizontal, 4)
+        Group {
+            if groupedPlants.isEmpty {
+                CanopyScreen {
+                    CanopyEmptyState(
+                        title: "Aucun individu trouvé",
+                        message: effectiveSearchText.isEmpty
+                            ? "Ajoute un individu pour peupler la carte et les fiches."
+                            : "Aucun individu ne correspond à cette recherche.",
+                        systemImage: "leaf.circle"
+                    )
+                }
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        ForEach(groupedPlants, id: \.strata) { section in
+                            VStack(alignment: .leading, spacing: 12) {
+                                strataHeader(section.strata)
+                                    .padding(.horizontal, 4)
 
-                        LazyVGrid(columns: macGridColumns, alignment: .leading, spacing: 16) {
-                            ForEach(section.plants) { plant in
-                                NavigationLink(destination: PlantDetailView(plant: plant)) {
-                                    PlantCard(plant: plant)
+                                LazyVGrid(columns: macGridColumns, alignment: .leading, spacing: 16) {
+                                    ForEach(section.plants) { plant in
+                                        NavigationLink(destination: PlantDetailView(plant: plant)) {
+                                            PlantCard(plant: plant)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 16)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 16)
         }
         .background(Color.appBackground)
         .searchable(text: $searchText, prompt: "Rechercher un plant")
@@ -204,9 +232,7 @@ struct PlantsListView: View {
 }
 
 private func strataHeader(_ name: String) -> some View {
-    Text(name.uppercased())
-        .font(.system(size: 17, weight: .semibold))
-        .foregroundColor(.textSecondary)
+    CanopySectionHeader(title: name.uppercased())
         .padding(.vertical, 4)
 }
 
@@ -227,43 +253,41 @@ private struct PlantRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            avatar
+        CanopyCard {
+            HStack(alignment: .top, spacing: 12) {
+                avatar
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .top) {
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .italic()
-                }
-
-                HStack {
-                    if let zone = plant.zone, !zone.isEmpty {
-                        // Badge de zone à gauche : style neutre
-                        AppBadge(text: "Zone \(zone)", style: .subtle)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .top) {
+                        Text(title)
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    Spacer(minLength: 8)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                            .italic()
+                    }
 
-                    if let label = plant.label, !label.isEmpty {
-                        // Badge d’identifiant à droite : style mis en valeur
-                        AppBadge(text: label, style: .accent)
-                            .fixedSize(horizontal: true, vertical: false)
+                    HStack {
+                        if let zone = plant.zone, !zone.isEmpty {
+                            AppBadge(text: "Zone \(zone)", style: .subtle)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        if let label = plant.label, !label.isEmpty {
+                            AppBadge(text: label, style: .accent)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
                     }
                 }
+
+                Spacer()
             }
-
-            Spacer()
         }
-        .padding(10)
-        .liquidGlassCard(cornerRadius: 14)
         .padding(.vertical, 3)
     }
 
@@ -301,49 +325,48 @@ private struct PlantCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Image ou avatar mis en avant
-            AvatarCircle(
-                title: plant.commonName,
-                imageURL: plant.speciesImageURL,
-                localImageURL: plant.imageLocal
-            )
-            .frame(width: 96, height: 96)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+        CanopyCard {
+            VStack(alignment: .leading, spacing: 10) {
+                AvatarCircle(
+                    title: plant.commonName,
+                    imageURL: plant.speciesImageURL,
+                    localImageURL: plant.imageLocal
+                )
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: CanopyCornerRadius.md))
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                        .italic()
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 4)
-
-            HStack(spacing: 8) {
-                if let zone = plant.zone, !zone.isEmpty {
-                    AppBadge(text: "Zone \(zone)", style: .subtle)
-                        .frame(maxWidth: 120, alignment: .leading)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .italic()
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer(minLength: 4)
 
-                if let label = plant.label, !label.isEmpty {
-                    AppBadge(text: label, style: .accent)
-                        .fixedSize(horizontal: true, vertical: false)
+                HStack(spacing: 8) {
+                    if let zone = plant.zone, !zone.isEmpty {
+                        AppBadge(text: "Zone \(zone)", style: .subtle)
+                            .frame(maxWidth: 120, alignment: .leading)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    if let label = plant.label, !label.isEmpty {
+                        AppBadge(text: label, style: .accent)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
             }
         }
-        .padding(12)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-        .liquidGlassCard(cornerRadius: 18)
     }
 }

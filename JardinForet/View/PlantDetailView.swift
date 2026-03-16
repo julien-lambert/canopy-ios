@@ -2,7 +2,7 @@ import SwiftUI
 import MapKit
 
 struct PlantDetailView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     @Environment(\.dismiss) private var dismiss
     @State private var showingPlantForm = false
     @State private var showingDeleteAlert = false
@@ -40,18 +40,12 @@ struct PlantDetailView: View {
         .toolbar {
             if store.canMutateSpeciesAndIndividuals {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    // Bouton éditer
-                    Button {
+                    CanopyToolbarIconButton(systemImage: "square.and.pencil") {
                         showingPlantForm = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
                     }
 
-                    // Bouton supprimer (destructif)
-                    Button(role: .destructive) {
+                    CanopyToolbarIconButton(systemImage: "trash", role: .destructive) {
                         showingDeleteAlert = true
-                    } label: {
-                        Image(systemName: "trash")
                     }
                 }
             }
@@ -816,27 +810,9 @@ fileprivate struct DetailCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        #if os(macOS)
-        GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text(title)
-                .font(.headline)
-        }
-        .groupBoxStyle(.automatic)
-        #else
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-
+        CanopyCard(title: title) {
             content
         }
-        .padding()
-        .liquidGlassCard(cornerRadius: 16)
-        #endif
     }
 }
 
@@ -845,33 +821,7 @@ fileprivate struct InfoRow: View {
     let value: String
 
     var body: some View {
-        #if os(macOS)
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .frame(width: 130, alignment: .leading)
-            Text(value)
-                .font(.subheadline)
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
-        }
-        .padding(.vertical, 2)
-        #else
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            Spacer()
-
-            Text(value)
-                .font(.subheadline)
-                .foregroundColor(.primary)
-                .multilineTextAlignment(.trailing)
-        }
-        .padding(.vertical, 2)
-        #endif
+        CanopyInfoLine(label: label, value: value)
+            .padding(.vertical, 2)
     }
 }

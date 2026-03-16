@@ -1,18 +1,18 @@
 import Foundation
 import Supabase
 
-final class CanopyV2PushEngine {
+final class CanopyPushEngine {
     private let remoteClient: SupabaseClient?
-    private let localDB: LocalV2Database
+    private let localDB: CanopyLocalDatabase
 
-    init(localDB: LocalV2Database) {
+    init(localDB: CanopyLocalDatabase) {
         self.localDB = localDB
         self.remoteClient = CanopySupabaseClientProvider.shared
     }
 
     func pushPending(limit: Int = 100) async throws -> Int {
         guard let remoteClient else { return 0 }
-        try await CanopySupabaseAuthBootstrap.shared.ensureAuthenticated(client: remoteClient)
+        _ = try await CanopySupabaseAuthBootstrap.shared.ensureAuthenticated(client: remoteClient)
         let pending = try localDB.fetchPendingOutbox(limit: limit)
         guard !pending.isEmpty else { return 0 }
 
@@ -29,9 +29,9 @@ final class CanopyV2PushEngine {
         return successCount
     }
 
-    private func pushItem(_ item: LocalV2OutboxItem, with client: SupabaseClient) async throws {
+    private func pushItem(_ item: CanopyLocalOutboxItem, with client: SupabaseClient) async throws {
         guard let data = item.payloadJSON.data(using: .utf8) else {
-            throw NSError(domain: "CanopyV2PushEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid payload encoding"])
+            throw NSError(domain: "CanopyPushEngine", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid payload encoding"])
         }
 
         let payload = try JSONDecoder().decode(CanopyDynamicRow.self, from: data)
@@ -46,7 +46,7 @@ final class CanopyV2PushEngine {
                 let remoteID = item.entityRemoteID,
                 let contract = deleteContract(for: tableName)
             else {
-                throw NSError(domain: "CanopyV2PushEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "Missing delete contract for entity \(tableName)"])
+                throw NSError(domain: "CanopyPushEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "Missing delete contract for entity \(tableName)"])
             }
 
             _ = try await client
@@ -55,7 +55,7 @@ final class CanopyV2PushEngine {
                 .eq(contract.idField, value: remoteID)
                 .execute()
         default:
-            throw NSError(domain: "CanopyV2PushEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unsupported outbox op \(item.opType)"])
+            throw NSError(domain: "CanopyPushEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unsupported outbox op \(item.opType)"])
         }
     }
 

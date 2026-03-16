@@ -2,7 +2,7 @@ import SwiftUI
 import MapKit
 
 struct SpeciesDetailView: View {
-    @EnvironmentObject var store: GardenStore
+    @EnvironmentObject var store: CanopyStore
     @Environment(\.dismiss) private var dismiss
 
     /// Identifiant espèce passé depuis la liste (prioritaire)
@@ -88,10 +88,8 @@ struct SpeciesDetailView: View {
                             }
 
                             if canDeleteSpecies(detail) {
-                                Button(role: .destructive) {
+                                CanopyToolbarIconButton(systemImage: "trash", role: .destructive) {
                                     showingDeleteAlert = true
-                                } label: {
-                                    Image(systemName: "trash")
                                 }
                             }
                         }
@@ -494,26 +492,9 @@ fileprivate struct SectionCard<Content: View>: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                contentBuilder()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Text(title)
-                .font(.headline)
-        }
-        #else
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.headline)
-
+        CanopyCard(title: title) {
             contentBuilder()
         }
-        .padding()
-        .liquidGlassCard(cornerRadius: 16)
-        #endif
     }
 }
 
@@ -523,27 +504,7 @@ fileprivate struct KeyValueRow: View {
     let value: String
 
     var body: some View {
-        #if os(macOS)
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .frame(width: 140, alignment: .leading)
-            Text(value)
-                .font(.subheadline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
-        }
-        #else
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-            Text(value)
-                .font(.subheadline)
-        }
-        #endif
+        CanopyInfoLine(label: label, value: value)
     }
 }
 
