@@ -141,6 +141,7 @@ final class CanopyStore: ObservableObject {
     func loadLocalData() {
         let loaded = loadLocalSnapshot()
         if loaded {
+            recoverSuspiciousCentroidPlacementsIfNeeded()
             AppLog.info("loadLocalData via Canopy local (\(plants.count) individus)", category: .sync)
             repairMapVisibilityDefaultsIfNeeded()
             repairSiteIlotAssociationsIfNeeded()
@@ -161,6 +162,65 @@ final class CanopyStore: ObservableObject {
         } else {
             AppLog.warning("loadLocalSpecies: snapshot local indisponible", category: .sync)
             species = []
+        }
+    }
+
+    private func recoverSuspiciousCentroidPlacementsIfNeeded() {
+        guard let localDB else { return }
+
+        let terrainFallback = terrainDefaultCoordinate()
+        let suspiciousPlants = plants.filter { plant in
+            guard
+                shouldAssignTerrainCoordinate(for: plant),
+                let remoteID = plant.uuid, !remoteID.isEmpty,
+                plant.siteIlotID == nil,
+                (plant.zone ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                let lat = plant.lat,
+                let lon = plant.lon
+            else {
+                return false
+            }
+
+            let distance = CLLocation(
+                latitude: lat,
+                longitude: lon
+            ).distance(
+                from: CLLocation(
+                    latitude: terrainFallback.latitude,
+                    longitude: terrainFallback.longitude
+                )
+            )
+            return distance <= 1.5
+        }
+
+        guard suspiciousPlants.count >= 2 else { return }
+
+        do {
+            let pendingRemoteIDs = try Set(
+                localDB.fetchPendingOutbox(limit: 500)
+                    .filter { $0.entityType == CanopySchema.Tables.individuals }
+                    .compactMap(\.entityRemoteID)
+            )
+            let remoteIDsToRecover = suspiciousPlants
+                .compactMap(\.uuid)
+                .filter { pendingRemoteIDs.contains($0) }
+
+            guard !remoteIDsToRecover.isEmpty else { return }
+
+            try localDB.deletePendingOutboxOperations(
+                entityType: CanopySchema.Tables.individuals,
+                entityRemoteIDs: remoteIDsToRecover
+            )
+            try localDB.clearLocalIndividualCoordinates(remoteIDs: remoteIDsToRecover)
+            try localDB.setLastSyncedAt(nil, for: CanopySchema.Tables.individuals)
+
+            guard loadLocalSnapshot() else { return }
+            AppLog.warning(
+                "Recovered \(remoteIDsToRecover.count) individus suspectement recentrés avant synchronisation",
+                category: .database
+            )
+        } catch {
+            AppLog.error("Erreur recoverSuspiciousCentroidPlacementsIfNeeded: \(error)", category: .database)
         }
     }
 

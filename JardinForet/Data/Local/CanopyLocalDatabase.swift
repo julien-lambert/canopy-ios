@@ -903,4 +903,42 @@ final class CanopyLocalDatabase {
             )
         }
     }
+
+    func deletePendingOutboxOperations(entityType: String, entityRemoteIDs: [String]) throws {
+        guard !entityRemoteIDs.isEmpty else { return }
+        let placeholders = Array(repeating: "?", count: entityRemoteIDs.count).joined(separator: ", ")
+        let arguments = StatementArguments([entityType] + entityRemoteIDs)
+        try dbPool.write { db in
+            try db.execute(
+                sql: """
+                  DELETE FROM \(CanopyLocalSchema.syncOutboxTableName)
+                  WHERE status = 'pending'
+                    AND entity_type = ?
+                    AND entity_remote_id IN (\(placeholders))
+                """,
+                arguments: arguments
+            )
+        }
+    }
+
+    func clearLocalIndividualCoordinates(remoteIDs: [String]) throws {
+        guard !remoteIDs.isEmpty else { return }
+        let placeholders = Array(repeating: "?", count: remoteIDs.count).joined(separator: ", ")
+        let now = nowISO8601()
+        let arguments = StatementArguments([now] + remoteIDs)
+        try dbPool.write { db in
+            try db.execute(
+                sql: """
+                  UPDATE individuals_local
+                  SET location_lat = NULL,
+                      location_lng = NULL,
+                      location_alt = NULL,
+                      site_ilot_id = NULL,
+                      updated_at = ?
+                  WHERE remote_id IN (\(placeholders))
+                """,
+                arguments: arguments
+            )
+        }
+    }
 }
