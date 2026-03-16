@@ -625,6 +625,9 @@ final class CanopyLocalDatabase {
         let sunExposureKey = CanopySchema.SiteIlotsFields.sunExposure
         let humidityProfileKey = CanopySchema.SiteIlotsFields.humidityProfile
         let pedologyKey = CanopySchema.SiteIlotsFields.pedology
+        let drainageProfileKey = CanopySchema.SiteIlotsFields.drainageProfile
+        let frostExposureKey = CanopySchema.SiteIlotsFields.frostExposure
+        let managementIntensityKey = CanopySchema.SiteIlotsFields.managementIntensity
         let slopePctKey = CanopySchema.SiteIlotsFields.slopePct
         let aspectKey = CanopySchema.SiteIlotsFields.aspect
         let windExposureKey = CanopySchema.SiteIlotsFields.windExposure
@@ -663,6 +666,9 @@ final class CanopyLocalDatabase {
                         sun_exposure,
                         humidity_profile,
                         pedology,
+                        drainage_profile,
+                        frost_exposure,
+                        management_intensity,
                         slope_pct,
                         aspect,
                         wind_exposure,
@@ -673,7 +679,7 @@ final class CanopyLocalDatabase {
                         updated_at,
                         deleted_at
                       )
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                       ON CONFLICT(remote_id) DO UPDATE SET
                         site_id = excluded.site_id,
                         code = excluded.code,
@@ -686,6 +692,9 @@ final class CanopyLocalDatabase {
                         sun_exposure = excluded.sun_exposure,
                         humidity_profile = excluded.humidity_profile,
                         pedology = excluded.pedology,
+                        drainage_profile = excluded.drainage_profile,
+                        frost_exposure = excluded.frost_exposure,
+                        management_intensity = excluded.management_intensity,
                         slope_pct = excluded.slope_pct,
                         aspect = excluded.aspect,
                         wind_exposure = excluded.wind_exposure,
@@ -709,6 +718,9 @@ final class CanopyLocalDatabase {
                         row[sunExposureKey]?.stringValue,
                         row[humidityProfileKey]?.stringValue,
                         row[pedologyKey]?.stringValue,
+                        row[drainageProfileKey]?.stringValue,
+                        row[frostExposureKey]?.stringValue,
+                        row[managementIntensityKey]?.stringValue,
                         row[slopePctKey]?.doubleValue,
                         row[aspectKey]?.stringValue,
                         row[windExposureKey]?.stringValue,

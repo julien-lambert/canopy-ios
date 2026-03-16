@@ -68,10 +68,12 @@ enum CanopyUIAdapters {
     static func toGardenPlants(
         individuals: [CanopyLocalIndividualRecord],
         speciesRecords: [CanopyLocalSpeciesRecord],
-        cultivarRecords: [CanopyLocalCultivarRecord]
+        cultivarRecords: [CanopyLocalCultivarRecord],
+        siteIlotRecords: [CanopyLocalSiteIlotRecord] = []
     ) -> [GardenPlant] {
         let speciesByRemoteID = Dictionary(uniqueKeysWithValues: speciesRecords.map { ($0.remoteID, $0) })
         let cultivarByRemoteID = Dictionary(uniqueKeysWithValues: cultivarRecords.map { ($0.remoteID, $0) })
+        let siteIlotsByRemoteID = Dictionary(uniqueKeysWithValues: siteIlotRecords.map { ($0.remoteID, $0) })
 
         return individuals
             .filter { $0.deletedAt == nil }
@@ -82,12 +84,15 @@ enum CanopyUIAdapters {
                 let commonName = species.flatMap { fallbackCommonName(for: $0) } ?? "Espèce"
                 let latinName = species.flatMap { fallbackLatinName(for: $0) } ?? commonName
                 let tags = species.flatMap { joinTags(from: $0.tagsJSON) }
+                let siteIlot = plant.siteIlotID.flatMap { siteIlotsByRemoteID[$0] }
 
                 return GardenPlant(
                     id: stableIntID(from: plant.remoteID),
                     uuid: plant.remoteID,
                     speciesID: species.map { stableIntID(from: $0.remoteID) } ?? 0,
                     siteIlotID: plant.siteIlotID,
+                    siteIlotCode: siteIlot?.code,
+                    siteIlotName: siteIlot?.name,
                     label: plant.label ?? plant.code,
                     lat: plant.locationLat,
                     lon: plant.locationLng,

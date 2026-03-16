@@ -276,6 +276,10 @@ private struct PlantRow: View {
                             AppBadge(text: "Zone \(zone)", style: .subtle)
                         }
 
+                        if let ilotCode = plant.siteIlotCode, !ilotCode.isEmpty {
+                            AppBadge(text: "Îlot \(ilotCode)", style: .subtle)
+                        }
+
                         Spacer(minLength: 8)
 
                         if let label = plant.label, !label.isEmpty {
@@ -355,6 +359,11 @@ private struct PlantCard: View {
                 HStack(spacing: 8) {
                     if let zone = plant.zone, !zone.isEmpty {
                         AppBadge(text: "Zone \(zone)", style: .subtle)
+                            .frame(maxWidth: 120, alignment: .leading)
+                    }
+
+                    if let ilotCode = plant.siteIlotCode, !ilotCode.isEmpty {
+                        AppBadge(text: "Îlot \(ilotCode)", style: .subtle)
                             .frame(maxWidth: 120, alignment: .leading)
                     }
 

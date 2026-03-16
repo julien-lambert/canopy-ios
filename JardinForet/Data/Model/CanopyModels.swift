@@ -1197,6 +1197,8 @@ extension DBPlant {
             uuid: uuid,
             speciesID: Int(speciesId),
             siteIlotID: nil,
+            siteIlotCode: nil,
+            siteIlotName: nil,
             label: label,
             lat: lat,
             lon: lon,
@@ -1281,6 +1283,8 @@ struct GardenPlant: Identifiable, Hashable {
     let uuid: String?
     let speciesID: Int
     let siteIlotID: String?
+    let siteIlotCode: String?
+    let siteIlotName: String?
     let label: String?
     let lat: Double?
     let lon: Double?
@@ -1371,6 +1375,9 @@ struct GardenSiteIlot: Identifiable, Hashable {
     let sunExposure: String?
     let humidityProfile: String?
     let pedology: String?
+    let drainageProfile: String?
+    let frostExposure: String?
+    let managementIntensity: String?
     let slopePct: Double?
     let aspect: String?
     let windExposure: String?

@@ -225,6 +225,9 @@ enum CanopyLocalSchema {
                 table.column("sun_exposure", .text)
                 table.column("humidity_profile", .text)
                 table.column("pedology", .text)
+                table.column("drainage_profile", .text)
+                table.column("frost_exposure", .text)
+                table.column("management_intensity", .text)
                 table.column("slope_pct", .double)
                 table.column("aspect", .text)
                 table.column("wind_exposure", .text)
@@ -256,6 +259,25 @@ enum CanopyLocalSchema {
             }
 
             try db.create(index: "idx_sites_local_slug", on: "sites_local", columns: ["slug"], ifNotExists: true)
+        }
+
+        migrator.registerMigration("local_0006_site_ilots_agronomic_profiles") { db in
+            let columns = try db.columns(in: "site_ilots_local").map(\.name)
+            if !columns.contains("drainage_profile") {
+                try db.alter(table: "site_ilots_local") { table in
+                    table.add(column: "drainage_profile", .text)
+                }
+            }
+            if !columns.contains("frost_exposure") {
+                try db.alter(table: "site_ilots_local") { table in
+                    table.add(column: "frost_exposure", .text)
+                }
+            }
+            if !columns.contains("management_intensity") {
+                try db.alter(table: "site_ilots_local") { table in
+                    table.add(column: "management_intensity", .text)
+                }
+            }
         }
 
         return migrator
@@ -450,6 +472,9 @@ struct CanopyLocalSiteIlotRecord: Codable, FetchableRecord, PersistableRecord {
     var sunExposure: String?
     var humidityProfile: String?
     var pedology: String?
+    var drainageProfile: String?
+    var frostExposure: String?
+    var managementIntensity: String?
     var slopePct: Double?
     var aspect: String?
     var windExposure: String?
@@ -474,6 +499,9 @@ struct CanopyLocalSiteIlotRecord: Codable, FetchableRecord, PersistableRecord {
         case sunExposure = "sun_exposure"
         case humidityProfile = "humidity_profile"
         case pedology
+        case drainageProfile = "drainage_profile"
+        case frostExposure = "frost_exposure"
+        case managementIntensity = "management_intensity"
         case slopePct = "slope_pct"
         case aspect
         case windExposure = "wind_exposure"

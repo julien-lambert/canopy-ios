@@ -89,7 +89,8 @@ final class CanopyStore: ObservableObject {
             let localPlants = CanopyUIAdapters.toGardenPlants(
                 individuals: individualRecords,
                 speciesRecords: speciesRecords,
-                cultivarRecords: cultivarRecords
+                cultivarRecords: cultivarRecords,
+                siteIlotRecords: siteIlotRecords
             )
             let localSiteIlots = siteIlotRecords.map(Self.makeGardenSiteIlot)
             let terrainPolygons = Self.geometryPolygons(from: siteRecord?.geomJSON)
@@ -1319,6 +1320,9 @@ private extension CanopyStore {
             sunExposure: record.sunExposure,
             humidityProfile: record.humidityProfile,
             pedology: record.pedology,
+            drainageProfile: record.drainageProfile,
+            frostExposure: record.frostExposure,
+            managementIntensity: record.managementIntensity,
             slopePct: record.slopePct,
             aspect: record.aspect,
             windExposure: record.windExposure,

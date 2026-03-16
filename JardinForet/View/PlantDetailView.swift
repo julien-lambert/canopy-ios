@@ -19,7 +19,10 @@ struct PlantDetailView: View {
                     headerHero
                         .id("hero-\(activePlant.id)")
 
-                    PlantDetailContent(plant: activePlant)
+                    PlantDetailContent(
+                        plant: activePlant,
+                        siteIlot: activePlantIlot
+                    )
                         .padding(.horizontal)
                 }
                 .padding(.bottom, 24)
@@ -119,6 +122,11 @@ struct PlantDetailView: View {
         .clipped()                         // recadrage type "aspectFill"
     }
 
+    private var activePlantIlot: GardenSiteIlot? {
+        guard let ilotID = activePlant.siteIlotID else { return nil }
+        return store.siteIlots.first(where: { $0.id == ilotID })
+    }
+
     private var activePlant: GardenPlant {
         if let id = currentPlantID,
            let found = store.plants.first(where: { $0.id == id }) {
@@ -164,6 +172,7 @@ struct PlantDetailView: View {
 
 fileprivate struct PlantDetailContent: View {
     let plant: GardenPlant
+    let siteIlot: GardenSiteIlot?
 
     var body: some View {
         #if os(macOS)
@@ -466,6 +475,31 @@ fileprivate struct PlantDetailContent: View {
                 InfoRow(label: "Zone", value: zone)
             }
 
+            if let siteIlot {
+                let ilotLabel = [siteIlot.code, siteIlot.name]
+                    .compactMap { value in
+                        guard let value, !value.isEmpty else { return nil }
+                        return value
+                    }
+                    .joined(separator: " — ")
+                if !ilotLabel.isEmpty {
+                    InfoRow(label: "Îlot", value: ilotLabel)
+                }
+                if let area = siteIlot.areaM2 {
+                    InfoRow(label: "Surface d'îlot", value: String(format: "%.1f m²", area))
+                }
+            } else if let siteIlotCode = plant.siteIlotCode, !siteIlotCode.isEmpty {
+                let fallbackLabel = [siteIlotCode, plant.siteIlotName]
+                    .compactMap { value in
+                        guard let value, !value.isEmpty else { return nil }
+                        return value
+                    }
+                    .joined(separator: " — ")
+                if !fallbackLabel.isEmpty {
+                    InfoRow(label: "Îlot", value: fallbackLabel)
+                }
+            }
+
             // Altitude
             if let alt = plant.altitude {
                 InfoRow(
@@ -511,6 +545,36 @@ fileprivate struct PlantDetailContent: View {
 
             if let soil = plant.soilLocal, !soil.isEmpty {
                 InfoRow(label: "Sol local", value: soil)
+            }
+
+            if let siteIlot {
+                if let exposure = siteIlot.sunExposure, !exposure.isEmpty {
+                    InfoRow(label: "Ensoleillement", value: exposure)
+                }
+                if let humidity = siteIlot.humidityProfile, !humidity.isEmpty {
+                    InfoRow(label: "Humidité", value: humidity)
+                }
+                if let pedology = siteIlot.pedology, !pedology.isEmpty {
+                    InfoRow(label: "Pédologie", value: pedology)
+                }
+                if let drainage = siteIlot.drainageProfile, !drainage.isEmpty {
+                    InfoRow(label: "Drainage", value: drainage)
+                }
+                if let frostExposure = siteIlot.frostExposure, !frostExposure.isEmpty {
+                    InfoRow(label: "Exposition au gel", value: frostExposure)
+                }
+                if let windExposure = siteIlot.windExposure, !windExposure.isEmpty {
+                    InfoRow(label: "Vent", value: windExposure)
+                }
+                if let managementIntensity = siteIlot.managementIntensity, !managementIntensity.isEmpty {
+                    InfoRow(label: "Gestion", value: managementIntensity)
+                }
+                if let slopePct = siteIlot.slopePct {
+                    InfoRow(label: "Pente", value: String(format: "%.0f %%", slopePct))
+                }
+                if let aspect = siteIlot.aspect, !aspect.isEmpty {
+                    InfoRow(label: "Aspect", value: aspect)
+                }
             }
         }
         .frame(maxWidth: .infinity)

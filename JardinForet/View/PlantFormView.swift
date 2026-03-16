@@ -29,6 +29,7 @@ struct PlantFormView: View {
         _cultivarList = State(initialValue: [])
         _selectedCultivarId = State(initialValue: nil)
         _selectedSpeciesId = State(initialValue: nil)
+        _selectedSiteIlotCode = State(initialValue: "")
         _showQuickSpeciesCreator = State(initialValue: false)
         _showQuickCultivarCreator = State(initialValue: false)
 
@@ -51,6 +52,7 @@ struct PlantFormView: View {
         case .create:
             _label = State(initialValue: "")
             _zone  = State(initialValue: "")
+            _selectedSiteIlotCode = State(initialValue: "")
             _notes = State(initialValue: "")
             _showAdvancedFields = State(initialValue: false)
             // Les autres champs restent à "" (déjà initialisés plus haut)
@@ -58,6 +60,7 @@ struct PlantFormView: View {
         case .edit(let plant):
             _label = State(initialValue: plant.label ?? "")
             _zone  = State(initialValue: plant.zone  ?? "")
+            _selectedSiteIlotCode = State(initialValue: plant.siteIlotCode ?? "")
             _notes = State(initialValue: plant.notes ?? "")
             _showAdvancedFields = State(
                 initialValue: [plant.microSite,
@@ -98,6 +101,7 @@ struct PlantFormView: View {
     // Liste des cultivars possibles pour l’espèce sélectionnée
     @State private var cultivarList: [GardenTaxon] = []
     @State private var selectedCultivarId: Int?
+    @State private var selectedSiteIlotCode: String
 
     // Champs du formulaire
     @State private var selectedSpeciesId: Int?
@@ -294,7 +298,16 @@ struct PlantFormView: View {
                 }
             }
 
-            TextField("Zone / îlot", text: $zone)
+            if !store.siteIlots.isEmpty {
+                Picker("Îlot du site", selection: $selectedSiteIlotCode) {
+                    Text("Auto / aucun").tag("")
+                    ForEach(store.siteIlots.sorted(by: ilotSort), id: \.id) { ilot in
+                        Text(ilotDisplayLabel(ilot)).tag(ilot.code)
+                    }
+                }
+            }
+
+            TextField("Repère / zone libre", text: $zone)
 
             if locationManager.location != nil {
                 Button {
@@ -580,6 +593,7 @@ struct PlantFormView: View {
         // Préremplissage des champs texte à partir de la plante existante
         label = plant.label ?? ""
         zone  = plant.zone  ?? ""
+        selectedSiteIlotCode = plant.siteIlotCode ?? ""
         notes = plant.notes ?? ""
     }
 
@@ -616,6 +630,7 @@ struct PlantFormView: View {
 
         // Nettoyage des chaînes : on évite d’enregistrer des espaces vides
         let cleanZone    = zone.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSelectedIlotCode = selectedSiteIlotCode.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanNotes   = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanStatus  = status.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanMicro   = microSite.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -637,10 +652,11 @@ struct PlantFormView: View {
         let spreadValue = parseDouble(envergureCurrent)
         let latValue    = parseDouble(latitudeText)
         let lonValue    = parseDouble(longitudeText)
+        let effectiveZone = cleanSelectedIlotCode.isEmpty ? cleanZone : cleanSelectedIlotCode
         let writeInput = PlantWriteInput(
             speciesId: speciesId,
             varietyId: selectedCultivarId,
-            zone: cleanZone.isEmpty ? nil : cleanZone,
+            zone: effectiveZone.isEmpty ? nil : effectiveZone,
             notes: cleanNotes.isEmpty ? nil : cleanNotes,
             status: cleanStatus.isEmpty ? nil : cleanStatus,
             microSite: cleanMicro.isEmpty ? nil : cleanMicro,
@@ -664,6 +680,21 @@ struct PlantFormView: View {
         }
 
         dismiss()
+    }
+
+    private func ilotSort(lhs: GardenSiteIlot, rhs: GardenSiteIlot) -> Bool {
+        let lhsCode = lhs.code.localizedStandardCompare(rhs.code)
+        if lhsCode != .orderedSame {
+            return lhsCode == .orderedAscending
+        }
+        return (lhs.name ?? "").localizedCaseInsensitiveCompare(rhs.name ?? "") == .orderedAscending
+    }
+
+    private func ilotDisplayLabel(_ ilot: GardenSiteIlot) -> String {
+        if let name = ilot.name, !name.isEmpty {
+            return "\(ilot.code) — \(name)"
+        }
+        return ilot.code
     }
 }
 
