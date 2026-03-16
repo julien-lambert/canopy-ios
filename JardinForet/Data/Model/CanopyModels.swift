@@ -233,6 +233,7 @@ struct CultivarDTO: Codable {
 struct PlantWriteInput {
     var speciesId: Int
     var varietyId: Int? = nil
+    var siteIlotID: String? = nil
     var zone: String?
     var notes: String?
     var status: String? = nil

@@ -8,6 +8,7 @@ struct IGNVectorMapView: UIViewRepresentable {
     let selectedStrataFilter: GardenMapView.StrataFilter
     let terrainPolygons: [[CLLocationCoordinate2D]]
     let ilotPolygons: [[CLLocationCoordinate2D]]
+    let initialCenterCoordinate: CLLocationCoordinate2D?
     let hillshadeEnabled: Bool
     let hillshadeOpacity: Double
     let editingDraft: GardenMapView.PlantEditDraft?
@@ -95,6 +96,7 @@ struct IGNVectorMapView: UIViewRepresentable {
         coordinator.editingPinID = editingDraft?.id
         coordinator.terrainPolygons = terrainPolygons
         coordinator.ilotPolygons = ilotPolygons
+        coordinator.initialCenterCoordinate = initialCenterCoordinate
         coordinator.setRelief(enabled: hillshadeEnabled, opacity: hillshadeOpacity)
         coordinator.refreshContent()
 
@@ -124,6 +126,7 @@ struct IGNVectorMapView: UIViewRepresentable {
         var filteredPins: [GardenMapView.PlantPin] = []
         var terrainPolygons: [[CLLocationCoordinate2D]] = []
         var ilotPolygons: [[CLLocationCoordinate2D]] = []
+        var initialCenterCoordinate: CLLocationCoordinate2D?
 
         private var didSetInitialCamera = false
         var lastViewportSize: CGSize = .zero
@@ -213,7 +216,8 @@ struct IGNVectorMapView: UIViewRepresentable {
 
             if !didSetInitialCamera {
                 didSetInitialCamera = true
-                let defaultCenter = CLLocationCoordinate2D(latitude: 45.348828976987036, longitude: 4.0740432545957255)
+                let defaultCenter = initialCenterCoordinate
+                    ?? CLLocationCoordinate2D(latitude: 45.348828976987036, longitude: 4.0740432545957255)
                 if let first = filteredPins.first {
                     mapView.setCenter(first.coordinate, zoomLevel: 18, animated: false)
                 } else {

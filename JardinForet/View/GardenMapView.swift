@@ -195,7 +195,7 @@ struct GardenMapView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            if pins.isEmpty && terrainPolygons.isEmpty {
+            if pins.isEmpty && terrainPolygons.isEmpty && ilotPolygons.isEmpty && !store.hasMapReference {
                 MapPlaceholderView()
                     .ignoresSafeArea(edges: .top)
             } else {
@@ -207,6 +207,7 @@ struct GardenMapView: View {
                             selectedStrataFilter: selectedStrataFilter,
                             terrainPolygons: terrainPolygons,
                             ilotPolygons: ilotPolygons,
+                            initialCenterCoordinate: store.mapReferenceCoordinate,
                             hillshadeEnabled: hillshadeEnabled,
                             hillshadeOpacity: 1.0,
                             editingDraft: editingDraft,
@@ -234,6 +235,7 @@ struct GardenMapView: View {
                             selectedStrataFilter: selectedStrataFilter,
                             terrainPolygons: terrainPolygons,
                             ilotPolygons: ilotPolygons,
+                            initialCenterCoordinate: store.mapReferenceCoordinate,
                             mapBaseStyle: selectedMapBaseStyle,
                             hillshadeEnabled: hillshadeEnabled,
                             hillshadeOpacity: 1.0,
@@ -264,6 +266,7 @@ struct GardenMapView: View {
                         selectedStrataFilter: selectedStrataFilter,
                         terrainPolygons: terrainPolygons,
                         ilotPolygons: ilotPolygons,
+                        initialCenterCoordinate: store.mapReferenceCoordinate,
                         mapBaseStyle: selectedMapBaseStyle,
                         hillshadeEnabled: hillshadeEnabled,
                         hillshadeOpacity: 1.0,
@@ -423,22 +426,15 @@ struct GardenMapView: View {
             Text("Choisis l'action à effectuer sur cet individu.")
         }
         .onAppear {
-            // Centre initial : arbre de la sagesse (référence commune)
-            let wisdomTreeCoordinate = CLLocationCoordinate2D(
+            let fallbackReferenceCoordinate = CLLocationCoordinate2D(
                 latitude: 45.348828976987036,
                 longitude: 4.0740432545957255
             )
-
-            // Centre souhaité pour la vue globale du jardin sur macOS
-            let macInitialCenter = CLLocationCoordinate2D(
-                latitude: 45.3488016728169,
-                longitude: 4.073794389888802
-            )
+            let initialCenter = store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
 
 #if os(macOS)
-            // macOS : écran plus large → zoom plus serré et centrage fixe sur le cœur du jardin
             let region = MKCoordinateRegion(
-                center: macInitialCenter,
+                center: initialCenter,
                 span: MKCoordinateSpan(
                     latitudeDelta: 0.00035,
                     longitudeDelta: 0.00035
@@ -446,8 +442,7 @@ struct GardenMapView: View {
             )
             cameraPosition = .region(region)
 #else
-            // iOS : comportement précédent (auto en fonction du contenu, centré sur l'arbre de la sagesse)
-            let region = regionForCoordinates([wisdomTreeCoordinate])
+            let region = regionForCoordinates([initialCenter])
             cameraPosition = .region(region)
 #endif
 
@@ -986,6 +981,13 @@ struct GardenMapView: View {
                 let region = regionForCoordinates(firstPoly)
                 cameraPosition = .region(region)
                 didSetInitialCamera = true
+            } else if !store.mapIlotPolygons.isEmpty {
+                let region = regionForCoordinates(store.mapIlotPolygons.flatMap { $0 })
+                cameraPosition = .region(region)
+                didSetInitialCamera = true
+            } else if let reference = store.mapReferenceCoordinate {
+                cameraPosition = .region(regionForCoordinates([reference]))
+                didSetInitialCamera = true
             }
         }
     }
@@ -1328,6 +1330,7 @@ private struct GardenMapUIKitView: NSViewRepresentable {
     let selectedStrataFilter: GardenMapView.StrataFilter
     let terrainPolygons: [[CLLocationCoordinate2D]]
     let ilotPolygons: [[CLLocationCoordinate2D]]
+    let initialCenterCoordinate: CLLocationCoordinate2D?
     let mapBaseStyle: GardenMapView.MapBaseStyle
     let hillshadeEnabled: Bool
     let hillshadeOpacity: Double
@@ -1360,7 +1363,8 @@ private struct GardenMapUIKitView: NSViewRepresentable {
         syncPins(on: mapView, context: context)
 
         if !context.coordinator.didSetInitialRegion {
-            let defaultCenter = CLLocationCoordinate2D(latitude: 45.348828976987036, longitude: 4.0740432545957255)
+            let defaultCenter = initialCenterCoordinate
+                ?? CLLocationCoordinate2D(latitude: 45.348828976987036, longitude: 4.0740432545957255)
             let coords = pins.map(\.coordinate)
             let region = coords.isEmpty
                 ? MKCoordinateRegion(center: defaultCenter, span: MKCoordinateSpan(latitudeDelta: 0.0007, longitudeDelta: 0.0007))
@@ -1605,6 +1609,7 @@ private struct GardenMapUIKitView: UIViewRepresentable {
     let selectedStrataFilter: GardenMapView.StrataFilter
     let terrainPolygons: [[CLLocationCoordinate2D]]
     let ilotPolygons: [[CLLocationCoordinate2D]]
+    let initialCenterCoordinate: CLLocationCoordinate2D?
     let mapBaseStyle: GardenMapView.MapBaseStyle
     let hillshadeEnabled: Bool
     let hillshadeOpacity: Double
@@ -1660,10 +1665,11 @@ private struct GardenMapUIKitView: UIViewRepresentable {
         }
 
         if !context.coordinator.didSetInitialRegion {
-            let defaultCenter = CLLocationCoordinate2D(
-                latitude: 45.348828976987036,
-                longitude: 4.0740432545957255
-            )
+            let defaultCenter = initialCenterCoordinate
+                ?? CLLocationCoordinate2D(
+                    latitude: 45.348828976987036,
+                    longitude: 4.0740432545957255
+                )
             let coords = pins.map(\.coordinate)
             let region = coords.isEmpty
                 ? MKCoordinateRegion(

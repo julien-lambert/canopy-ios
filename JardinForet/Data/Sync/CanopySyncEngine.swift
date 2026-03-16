@@ -52,8 +52,15 @@ final class CanopySyncEngine {
         let individualsSince = try localDB.lastSyncedAt(for: individualsSyncKey)
         let siteIlotsSince = try localDB.lastSyncedAt(for: siteIlotsSyncKey)
         let sitesSince = try localDB.lastSyncedAt(for: sitesSyncKey)
+        let cachedSite = try localDB.fetchSiteRecord(remoteID: siteID)
+        let needsFullSiteRefresh = localSelectedSiteID != siteID
+            || cachedSite == nil
+            || (cachedSite?.geomJSON == nil && cachedSite?.settingsJSON == nil)
 
-        let siteRows = try await remoteClient.fetchSites(siteID: selected.siteID, since: sitesSince)
+        let siteRows = try await remoteClient.fetchSites(
+            siteID: selected.siteID,
+            since: needsFullSiteRefresh ? nil : sitesSince
+        )
         let speciesRows = try await remoteClient.fetchSpeciesPrivate(siteID: selected.siteID, since: speciesSince)
         let cultivarRows = try await remoteClient.fetchCultivars(siteID: selected.siteID, since: cultivarsSince)
         let individualRows = try await remoteClient.fetchIndividuals(siteID: selected.siteID, since: individualsSince)
