@@ -30,10 +30,8 @@ struct HomeView: View {
             await refreshHomeBrief()
         }
         .sheet(item: $pendingPlantEditor) { plant in
-            NavigationStack {
-                PlantFormView(mode: .edit(plant: plant))
-                    .environmentObject(store)
-            }
+            IndividualSheet(mode: .edit(plantID: plant.id))
+                .environmentObject(store)
         }
     }
 

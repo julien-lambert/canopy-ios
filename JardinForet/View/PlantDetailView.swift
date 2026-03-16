@@ -54,10 +54,8 @@ struct PlantDetailView: View {
             }
         }
         .sheet(isPresented: $showingPlantForm) {
-            NavigationStack {
-                PlantFormView(mode: .edit(plant: activePlant))
-                    .environmentObject(store)
-            }
+            IndividualSheet(mode: .edit(plantID: activePlant.id))
+                .environmentObject(store)
         }
         .alert("Supprimer cet individu ?", isPresented: $showingDeleteAlert) {
             Button("Annuler", role: .cancel) { }

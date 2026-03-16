@@ -87,10 +87,8 @@ struct PlantsListView: View {
             }
         }
         .sheet(isPresented: $showingCreatePlantForm) {
-            NavigationStack {
-                PlantFormView(mode: .create)
-                    .environmentObject(store)
-            }
+            IndividualSheet(mode: .create())
+                .environmentObject(store)
         }
     }
 
@@ -149,10 +147,8 @@ struct PlantsListView: View {
             }
         }
         .sheet(isPresented: $showingCreatePlantForm) {
-            NavigationStack {
-                PlantFormView(mode: .create)
-                    .environmentObject(store)
-            }
+            IndividualSheet(mode: .create())
+                .environmentObject(store)
         }
     }
 

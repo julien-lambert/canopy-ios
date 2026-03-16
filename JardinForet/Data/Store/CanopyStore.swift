@@ -415,6 +415,47 @@ final class CanopyStore: ObservableObject {
         }
     }
 
+    func suggestedSiteIlotID(
+        latitude: Double?,
+        longitude: Double?,
+        zone: String? = nil,
+        explicitSiteIlotID: String? = nil
+    ) -> String? {
+        guard let localDB else { return explicitSiteIlotID }
+
+        do {
+            guard let siteID = try localDB.currentSiteID(), !siteID.isEmpty else {
+                return explicitSiteIlotID
+            }
+            return try resolveLocalSiteIlotID(
+                siteID: siteID,
+                explicitSiteIlotID: explicitSiteIlotID,
+                latitude: latitude,
+                longitude: longitude,
+                zone: zone,
+                localDB: localDB,
+                existing: nil
+            )
+        } catch {
+            AppLog.error("Erreur suggestedSiteIlotID: \(error)", category: .database)
+            return explicitSiteIlotID
+        }
+    }
+
+    func displayLabel(forSiteIlotID siteIlotID: String?) -> String? {
+        guard
+            let siteIlotID,
+            let ilot = siteIlots.first(where: { $0.id == siteIlotID })
+        else {
+            return nil
+        }
+
+        if let name = ilot.name, !name.isEmpty {
+            return "\(ilot.code) — \(name)"
+        }
+        return ilot.code
+    }
+
     @discardableResult
     func createSpecies(_ input: SpeciesWriteInput) -> Int? {
         do {

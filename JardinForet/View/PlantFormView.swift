@@ -20,16 +20,18 @@ struct PlantFormView: View {
     }
 
     let mode: Mode
+    private let prefill: PlantFormPrefill?
 
-    init(mode: Mode) {
+    init(mode: Mode, prefill: PlantFormPrefill? = nil) {
         self.mode = mode
+        self.prefill = prefill
 
         // Initialisation des @State
         _speciesList = State(initialValue: [])
         _cultivarList = State(initialValue: [])
         _selectedCultivarId = State(initialValue: nil)
-        _selectedSpeciesId = State(initialValue: nil)
-        _selectedSiteIlotID = State(initialValue: "")
+        _selectedSpeciesId = State(initialValue: prefill?.speciesID)
+        _selectedSiteIlotID = State(initialValue: prefill?.siteIlotID ?? "")
         _showQuickSpeciesCreator = State(initialValue: false)
         _showQuickCultivarCreator = State(initialValue: false)
 
@@ -37,7 +39,7 @@ struct PlantFormView: View {
         _microSite          = State(initialValue: "")
         _exposureLocal      = State(initialValue: "")
         _soilLocal          = State(initialValue: "")
-        _status             = State(initialValue: "")
+        _status             = State(initialValue: prefill?.status ?? "")
         _acquisitionType    = State(initialValue: "")
         _acquisitionSource  = State(initialValue: "")
         _careNotes          = State(initialValue: "")
@@ -45,14 +47,22 @@ struct PlantFormView: View {
         _envergureCurrent   = State(initialValue: "")
 
         // Coordonnées GPS par défaut (non renseignées)
-        _latitudeText  = State(initialValue: "")
-        _longitudeText = State(initialValue: "")
+        if let latitude = prefill?.latitude {
+            _latitudeText = State(initialValue: String(latitude))
+        } else {
+            _latitudeText = State(initialValue: "")
+        }
+        if let longitude = prefill?.longitude {
+            _longitudeText = State(initialValue: String(longitude))
+        } else {
+            _longitudeText = State(initialValue: "")
+        }
 
         switch mode {
         case .create:
             _label = State(initialValue: "")
-            _zone  = State(initialValue: "")
-            _selectedSiteIlotID = State(initialValue: "")
+            _zone  = State(initialValue: prefill?.zone ?? "")
+            _selectedSiteIlotID = State(initialValue: prefill?.siteIlotID ?? "")
             _notes = State(initialValue: "")
             _showAdvancedFields = State(initialValue: false)
             // Les autres champs restent à "" (déjà initialisés plus haut)
@@ -177,6 +187,7 @@ struct PlantFormView: View {
             normalizePickerSelections()
             loadCultivarsForCurrentSpecies()
             refreshAutomaticLabel()
+            refreshSuggestedSiteIlotFromCurrentLocation()
         }
         .onChange(of: selectedSpeciesId) { _, _ in
             loadCultivarsForCurrentSpecies()
@@ -328,9 +339,15 @@ struct PlantFormView: View {
             }
 
             NavigationLink("Placer / déplacer sur la carte") {
-                CoordinatePickerView(
-                    latitudeText: $latitudeText,
-                    longitudeText: $longitudeText
+                GardenMapView(
+                    mode: .pick(
+                        initialCoordinate: currentCoordinate,
+                        onPick: { coordinate in
+                            latitudeText = String(format: "%.7f", coordinate.latitude)
+                            longitudeText = String(format: "%.7f", coordinate.longitude)
+                            refreshSuggestedSiteIlotFromCurrentLocation()
+                        }
+                    )
                 )
             }
         }
@@ -438,6 +455,32 @@ struct PlantFormView: View {
         guard let location = locationManager.location else { return }
         latitudeText = String(format: "%.7f", location.coordinate.latitude)
         longitudeText = String(format: "%.7f", location.coordinate.longitude)
+        refreshSuggestedSiteIlotFromCurrentLocation()
+    }
+
+    private var currentCoordinate: CLLocationCoordinate2D? {
+        guard
+            let latitude = Double(latitudeText.replacingOccurrences(of: ",", with: ".")),
+            let longitude = Double(longitudeText.replacingOccurrences(of: ",", with: "."))
+        else {
+            return nil
+        }
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    private func refreshSuggestedSiteIlotFromCurrentLocation() {
+        guard selectedSiteIlotID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard let coordinate = currentCoordinate else { return }
+
+        let suggestedID = store.suggestedSiteIlotID(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            zone: zone
+        )
+
+        if let suggestedID {
+            selectedSiteIlotID = suggestedID
+        }
     }
 
     private func handleQuickSpeciesCreated(_ newSpeciesID: Int) {
@@ -698,206 +741,3 @@ struct PlantFormView: View {
         return ilot.code
     }
 }
-
-// MARK: - Carte de sélection des coordonnées
-
-struct CoordinatePickerView: View {
-    @EnvironmentObject var store: CanopyStore
-    @Binding var latitudeText: String
-    @Binding var longitudeText: String
-
-    @State private var region: MKCoordinateRegion
-
-    init(latitudeText: Binding<String>, longitudeText: Binding<String>) {
-        _latitudeText = latitudeText
-        _longitudeText = longitudeText
-
-        // Point de départ : soit les valeurs actuelles, soit un centre par défaut
-        let lat = Double(latitudeText.wrappedValue) ?? 45.3488
-        let lon = Double(longitudeText.wrappedValue) ?? 4.0730
-
-        _region = State(initialValue: MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-            span: MKCoordinateSpan(latitudeDelta: 0.002, longitudeDelta: 0.002)
-        ))
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                #if canImport(UIKit)
-                CoordinatePickerMap(
-                    region: $region,
-                    terrainPolygons: store.mapTerrainPolygons,
-                    ilotPolygons: store.mapIlotPolygons
-                )
-                    .ignoresSafeArea(edges: .top)
-                #else
-                Map(coordinateRegion: $region)
-                    .ignoresSafeArea(edges: .top)
-                #endif
-
-                Image(systemName: "mappin.circle.fill")
-                    .font(.system(size: 30))
-                    .foregroundColor(.red)
-                    .shadow(radius: 3)
-                    .allowsHitTesting(false)
-            }
-
-            VStack(spacing: 8) {
-                Text(String(format: "Latitude : %.7f\nLongitude : %.7f",
-                            region.center.latitude,
-                            region.center.longitude))
-                    .font(.footnote)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 8)
-
-                Button("Utiliser ces coordonnées") {
-                    latitudeText  = String(format: "%.7f", region.center.latitude)
-                    longitudeText = String(format: "%.7f", region.center.longitude)
-                }
-                .buttonStyle(.borderedProminent)
-                .padding(.vertical, 8)
-            }
-            .padding(.horizontal)
-
-            Spacer()
-        }
-        .navigationTitle("Positionner l’individu")
-        .onAppear {
-            let latIsEmpty = latitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let lonIsEmpty = longitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            guard latIsEmpty, lonIsEmpty else { return }
-            region.center = store.preferredTerrainCoordinate
-        }
-    }
-}
-
-// MARK: - MKMapView wrapper pour afficher les îlots + centre de la carte
-
-// MARK: - MKMapView wrapper pour afficher les îlots + centre de la carte
-
-#if canImport(UIKit)
-struct CoordinatePickerMap: UIViewRepresentable {
-    @Binding var region: MKCoordinateRegion
-    let terrainPolygons: [[CLLocationCoordinate2D]]
-    let ilotPolygons: [[CLLocationCoordinate2D]]
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    func makeUIView(context: Context) -> MKMapView {
-        let mapView = MKMapView(frame: .zero)
-        mapView.delegate = context.coordinator
-
-        // Région initiale
-        mapView.setRegion(region, animated: false)
-        mapView.showsCompass = false
-        mapView.showsScale = false
-        mapView.pointOfInterestFilter = .excludingAll
-        mapView.isRotateEnabled = false
-
-        context.coordinator.syncOverlays(
-            on: mapView,
-            terrainPolygons: terrainPolygons,
-            ilotPolygons: ilotPolygons,
-            fitVisibleRect: true
-        )
-
-        return mapView
-    }
-
-    func updateUIView(_ uiView: MKMapView, context: Context) {
-        context.coordinator.syncOverlays(
-            on: uiView,
-            terrainPolygons: terrainPolygons,
-            ilotPolygons: ilotPolygons,
-            fitVisibleRect: false
-        )
-    }
-
-    // MARK: - Coordinator
-
-    class Coordinator: NSObject, MKMapViewDelegate {
-        var parent: CoordinatePickerMap
-        private var lastOverlaySignature: String?
-
-        init(_ parent: CoordinatePickerMap) {
-            self.parent = parent
-        }
-
-        func syncOverlays(
-            on mapView: MKMapView,
-            terrainPolygons: [[CLLocationCoordinate2D]],
-            ilotPolygons: [[CLLocationCoordinate2D]],
-            fitVisibleRect: Bool
-        ) {
-            let signature = overlaySignature(terrainPolygons: terrainPolygons, ilotPolygons: ilotPolygons)
-            guard signature != lastOverlaySignature else { return }
-            lastOverlaySignature = signature
-
-            mapView.removeOverlays(mapView.overlays)
-
-            let terrainOverlays = terrainPolygons.compactMap { coordinates -> MKPolygon? in
-                guard coordinates.count >= 3 else { return nil }
-                return MKPolygon(coordinates: coordinates, count: coordinates.count)
-            }
-
-            let ilotOverlays = ilotPolygons.compactMap { coordinates -> MKPolygon? in
-                guard coordinates.count >= 3 else { return nil }
-                return MKPolygon(coordinates: coordinates, count: coordinates.count)
-            }
-
-            let overlays = terrainOverlays + ilotOverlays
-            mapView.addOverlays(overlays)
-
-            guard fitVisibleRect, !overlays.isEmpty else { return }
-
-            let rect = overlays.reduce(MKMapRect.null) { partial, overlay in
-                partial.isNull ? overlay.boundingMapRect : partial.union(overlay.boundingMapRect)
-            }
-            if rect.size.width > 0 && rect.size.height > 0 {
-                mapView.setVisibleMapRect(
-                    rect,
-                    edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40),
-                    animated: false
-                )
-            }
-        }
-
-        private func overlaySignature(
-            terrainPolygons: [[CLLocationCoordinate2D]],
-            ilotPolygons: [[CLLocationCoordinate2D]]
-        ) -> String {
-            let terrainPoints = terrainPolygons.reduce(into: 0) { $0 += $1.count }
-            let ilotPoints = ilotPolygons.reduce(into: 0) { $0 += $1.count }
-            return "\(terrainPolygons.count)-\(terrainPoints)-\(ilotPolygons.count)-\(ilotPoints)"
-        }
-
-        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-            // On renvoie en permanence la région actuelle vers le binding SwiftUI
-            parent.region = mapView.region
-        }
-
-        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-            if let polygon = overlay as? MKPolygon {
-                let renderer = MKPolygonRenderer(polygon: polygon)
-                renderer.lineWidth = 1.0
-                renderer.strokeColor = UIColor.systemGreen.withAlphaComponent(0.8)
-                renderer.fillColor = UIColor.systemGreen.withAlphaComponent(0.2)
-                return renderer
-            } else if let multi = overlay as? MKMultiPolygon {
-                let renderer = MKMultiPolygonRenderer(multiPolygon: multi)
-                renderer.lineWidth = 1.0
-                renderer.strokeColor = UIColor.systemGreen.withAlphaComponent(0.8)
-                renderer.fillColor = UIColor.systemGreen.withAlphaComponent(0.2)
-                return renderer
-            }
-
-            return MKOverlayRenderer(overlay: overlay)
-        }
-    }
-}
-
-#endif
