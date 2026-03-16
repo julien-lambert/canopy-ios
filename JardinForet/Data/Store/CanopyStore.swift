@@ -30,6 +30,7 @@ final class CanopyStore: ObservableObject {
     private let syncEngine: CanopySyncEngine?
     private var syncTask: Task<Void, Never>?
     private var didStartSyncSession = false
+    private var lastStartedSyncSiteID: String?
 
     /// Species/individuals mutations are available on the local Canopy projection.
     var canMutateSpeciesAndIndividuals: Bool { localDB != nil }
@@ -60,11 +61,28 @@ final class CanopyStore: ObservableObject {
         loadLocalSpecies()
     }
 
-    func startSyncSession(force: Bool = false, refreshImages: Bool = false) {
-        if !force, didStartSyncSession {
-            return
+    func startSyncSession(force: Bool = false, refreshImages: Bool = false, siteIDHint: String? = nil) {
+        let normalizedSiteID = siteIDHint?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let normalizedSiteID, !normalizedSiteID.isEmpty {
+            switchLocalSnapshotIfNeeded(to: normalizedSiteID)
         }
+
+        if !force {
+            if let normalizedSiteID, !normalizedSiteID.isEmpty, hasLocalSnapshot(for: normalizedSiteID) {
+                AppLog.info("Auto sync ignoree pour \(normalizedSiteID): snapshot local deja disponible", category: .sync)
+                didStartSyncSession = true
+                lastStartedSyncSiteID = normalizedSiteID
+                return
+            }
+
+            if didStartSyncSession, lastStartedSyncSiteID == normalizedSiteID {
+                return
+            }
+        }
+
         didStartSyncSession = true
+        lastStartedSyncSiteID = normalizedSiteID
         syncWithSupabase(force: force, refreshImages: refreshImages)
     }
 
@@ -1758,7 +1776,7 @@ extension CanopyStore {
     }
 
     func forceSyncNow() {
-        syncWithSupabase(force: true, refreshImages: true)
+        syncWithSupabase(force: true, refreshImages: false)
     }
 
     func syncWithSupabase(force: Bool = false, refreshImages: Bool = false) {
@@ -1800,7 +1818,7 @@ extension CanopyStore {
             do {
                 if let syncEngine = self.syncEngine {
                     let pullStartedAt = Date()
-                    let summary = try await syncEngine.pullLatest()
+                    let summary = try await syncEngine.pullLatest(refreshStaticData: force)
                     let duration = elapsedMilliseconds(since: pullStartedAt)
 
                     if let summary {
@@ -1860,6 +1878,47 @@ extension CanopyStore {
             syncWithSupabase()
         } catch {
             AppLog.error("Erreur deletePlant: \(error)", category: .database)
+        }
+    }
+
+    private func hasLocalSnapshot(for siteID: String) -> Bool {
+        guard let localDB else { return false }
+
+        do {
+            if try localDB.fetchSiteRecord(remoteID: siteID) != nil {
+                return true
+            }
+
+            if !(try localDB.fetchSiteIlotsActive(siteID: siteID)).isEmpty {
+                return true
+            }
+
+            if !(try localDB.fetchIndividualsActive(siteID: siteID)).isEmpty {
+                return true
+            }
+
+            if !(try localDB.fetchSpeciesPrivateActive(siteID: siteID)).isEmpty {
+                return true
+            }
+        } catch {
+            AppLog.debug("Impossible de verifier le snapshot local pour \(siteID): \(error)", category: .sync)
+        }
+
+        return false
+    }
+
+    private func switchLocalSnapshotIfNeeded(to siteID: String) {
+        guard let localDB else { return }
+
+        do {
+            let currentSiteID = try localDB.currentSiteID()
+            guard currentSiteID != siteID else { return }
+            try localDB.setCurrentSiteID(siteID)
+            loadLocalData()
+            loadLocalSpecies()
+            AppLog.info("Contexte local bascule sur \(siteID) sans requete reseau", category: .sync)
+        } catch {
+            AppLog.error("Impossible de basculer le snapshot local sur \(siteID): \(error)", category: .sync)
         }
     }
 }

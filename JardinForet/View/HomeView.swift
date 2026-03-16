@@ -27,7 +27,7 @@ struct HomeView: View {
 #endif
         }
         .task(id: workspaceStore.selectedSiteID) {
-            await refreshHomeBrief()
+            await loadCachedHomeBrief()
         }
         .sheet(item: $pendingPlantEditor) { plant in
             IndividualSheet(mode: .edit(plantID: plant.id))
@@ -444,6 +444,26 @@ struct HomeView: View {
                         .canopySecondaryActionStyle()
                     }
                 }
+            } else {
+                CanopyCard(title: "Brief du jour", subtitle: "Charge-le seulement quand tu en as besoin", systemImage: "cloud.sun") {
+                    VStack(alignment: .leading, spacing: CanopySpacing.sm) {
+                        Text("Le brief ne part plus automatiquement au demarrage. On garde le cout reseau et IA sous controle, et on charge seulement a la demande.")
+                            .font(.subheadline)
+                            .foregroundColor(.textSecondary)
+
+                        HStack(spacing: 10) {
+                            Button("Actualiser") {
+                                Task { await refreshHomeBrief(force: true, withAI: false) }
+                            }
+                            .canopySecondaryActionStyle()
+
+                            Button("Analyser avec l'IA") {
+                                Task { await refreshHomeBrief(force: true, withAI: true) }
+                            }
+                            .canopyPrimaryActionStyle()
+                        }
+                    }
+                }
             }
         }
     }
@@ -544,6 +564,12 @@ struct HomeView: View {
             return
         }
 
+        if !force, let cached = homeBriefService.cached(siteID: siteID, withAI: withAI) {
+            homeBrief = cached
+            homeBriefError = nil
+            return
+        }
+
         if !force, homeBrief?.context.site.id == siteID {
             return
         }
@@ -568,6 +594,18 @@ struct HomeView: View {
         } catch {
             homeBriefError = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func loadCachedHomeBrief() async {
+        guard let siteID = workspaceStore.selectedSiteID, !siteID.isEmpty else {
+            homeBrief = nil
+            homeBriefError = nil
+            return
+        }
+
+        homeBrief = homeBriefService.cached(siteID: siteID, withAI: false)
+        homeBriefError = nil
     }
 }
 

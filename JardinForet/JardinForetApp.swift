@@ -164,7 +164,7 @@ struct JardinForetApp: App {
             .onChange(of: workspaceStore.selectedSiteID) { _, siteID in
                 guard authStore.isAuthenticated, siteID != nil else { return }
                 ensureSelectedTabIsAvailable()
-                store.startSyncSession(force: true, refreshImages: true)
+                store.startSyncSession(force: false, refreshImages: false, siteIDHint: siteID)
             }
             .onChange(of: workspaceStore.enabledModuleCodes) { _, _ in
                 ensureSelectedTabIsAvailable()
@@ -201,7 +201,7 @@ struct JardinForetApp: App {
             }
             .onChange(of: workspaceStore.selectedSiteID) { _, siteID in
                 guard authStore.isAuthenticated, siteID != nil else { return }
-                store.startSyncSession(force: true, refreshImages: true)
+                store.startSyncSession(force: false, refreshImages: false, siteIDHint: siteID)
             }
             .environmentObject(store)
             .environmentObject(locationManager)

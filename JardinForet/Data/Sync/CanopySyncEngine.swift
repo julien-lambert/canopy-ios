@@ -33,7 +33,7 @@ final class CanopySyncEngine {
         self.pushEngine = CanopyPushEngine(localDB: localDB)
     }
 
-    func pullLatest() async throws -> CanopyPullSummary? {
+    func pullLatest(refreshStaticData: Bool = false) async throws -> CanopyPullSummary? {
         _ = try await pushEngine.pushPending(limit: 100)
 
         let membershipRows = try await remoteClient.fetchSiteMemberships()
@@ -53,18 +53,22 @@ final class CanopySyncEngine {
         let siteIlotsSince = try localDB.lastSyncedAt(for: siteIlotsSyncKey)
         let sitesSince = try localDB.lastSyncedAt(for: sitesSyncKey)
         let cachedSite = try localDB.fetchSiteRecord(remoteID: siteID)
-        let needsFullSiteRefresh = localSelectedSiteID != siteID
-            || cachedSite == nil
-            || (cachedSite?.geomJSON == nil && cachedSite?.settingsJSON == nil)
+        let cachedSiteIlots = try localDB.fetchSiteIlotsActive(siteID: siteID)
+        let needsSiteRefresh = refreshStaticData || cachedSite == nil
+        let needsSiteIlotRefresh = refreshStaticData || cachedSiteIlots.isEmpty
 
-        let siteRows = try await remoteClient.fetchSites(
-            siteID: selected.siteID,
-            since: needsFullSiteRefresh ? nil : sitesSince
-        )
+        let siteRows = needsSiteRefresh
+            ? try await remoteClient.fetchSites(
+                siteID: selected.siteID,
+                since: refreshStaticData ? nil : sitesSince
+            )
+            : []
         let speciesRows = try await remoteClient.fetchSpeciesPrivate(siteID: selected.siteID, since: speciesSince)
         let cultivarRows = try await remoteClient.fetchCultivars(siteID: selected.siteID, since: cultivarsSince)
         let individualRows = try await remoteClient.fetchIndividuals(siteID: selected.siteID, since: individualsSince)
-        let siteIlotRows = try await remoteClient.fetchSiteIlots(siteID: selected.siteID, since: siteIlotsSince)
+        let siteIlotRows = needsSiteIlotRefresh
+            ? try await remoteClient.fetchSiteIlots(siteID: selected.siteID, since: refreshStaticData ? nil : siteIlotsSince)
+            : []
 
         try localDB.upsertSitesRows(rows: siteRows)
         try localDB.upsertSpeciesPrivateRows(siteID: siteID, rows: speciesRows)

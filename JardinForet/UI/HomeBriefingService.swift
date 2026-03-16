@@ -1,20 +1,20 @@
 import Foundation
 
-struct HomeBriefBundle: Decodable {
+struct HomeBriefBundle: Codable {
     let context: HomeBriefContextSnapshot
     let briefing: HomeBriefingSnapshot
     let llm: HomeBriefLLMSnapshot
 }
 
-struct HomeBriefContextSnapshot: Decodable {
-    struct Site: Decodable {
+struct HomeBriefContextSnapshot: Codable {
+    struct Site: Codable {
         let id: String
         let name: String
         let latitude: Double?
         let longitude: Double?
     }
 
-    struct WeatherToday: Decodable {
+    struct WeatherToday: Codable {
         let date: String
         let weatherCode: Int?
         let weatherLabel: String
@@ -36,7 +36,7 @@ struct HomeBriefContextSnapshot: Decodable {
         }
     }
 
-    struct WeatherHistory: Decodable {
+    struct WeatherHistory: Codable {
         let startDate: String
         let endDate: String
         let rainMM7D: Double
@@ -54,7 +54,7 @@ struct HomeBriefContextSnapshot: Decodable {
         }
     }
 
-    struct FrostRisk: Decodable {
+    struct FrostRisk: Codable {
         let level: String
         let label: String
         let nextFrostAt: String?
@@ -74,7 +74,7 @@ struct HomeBriefContextSnapshot: Decodable {
         }
     }
 
-    struct DataQuality: Decodable {
+    struct DataQuality: Codable {
         let individualsTotal: Int
         let missingPosition: Int
         let missingSpread: Int
@@ -96,7 +96,7 @@ struct HomeBriefContextSnapshot: Decodable {
         }
     }
 
-    struct PriorityItem: Decodable, Identifiable {
+    struct PriorityItem: Codable, Identifiable {
         let kind: String
         let id: String
         let label: String
@@ -122,8 +122,8 @@ struct HomeBriefContextSnapshot: Decodable {
     }
 }
 
-struct HomeBriefingSnapshot: Decodable {
-    struct WeatherToday: Decodable {
+struct HomeBriefingSnapshot: Codable {
+    struct WeatherToday: Codable {
         let label: String
         let tMinC: Double?
         let tMaxC: Double?
@@ -139,7 +139,7 @@ struct HomeBriefingSnapshot: Decodable {
         }
     }
 
-    struct FrostRisk: Decodable {
+    struct FrostRisk: Codable {
         let level: String
         let label: String
         let forecastMinC48H: Double?
@@ -153,7 +153,7 @@ struct HomeBriefingSnapshot: Decodable {
         }
     }
 
-    struct Alert: Decodable, Identifiable {
+    struct Alert: Codable, Identifiable {
         let id = UUID()
         let kind: String
         let severity: String
@@ -168,7 +168,7 @@ struct HomeBriefingSnapshot: Decodable {
         }
     }
 
-    struct Task: Decodable, Identifiable {
+    struct Task: Codable, Identifiable {
         let id = UUID()
         let kind: String
         let priority: String
@@ -204,7 +204,7 @@ struct HomeBriefingSnapshot: Decodable {
     }
 }
 
-struct HomeBriefLLMSnapshot: Decodable {
+struct HomeBriefLLMSnapshot: Codable {
     let generated: Bool
     let provider: String?
     let model: String?
@@ -240,7 +240,40 @@ enum HomeBriefingServiceError: LocalizedError {
 final class HomeBriefingService {
     static let shared = HomeBriefingService()
 
-    private init() {}
+    private struct CachedHomeBrief: Codable {
+        let siteID: String
+        let withAI: Bool
+        let savedAt: Date
+        let bundle: HomeBriefBundle
+    }
+
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+    private let cacheDirectory: URL
+
+    private init() {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+
+        let baseURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        self.cacheDirectory = baseURL.appendingPathComponent("HomeBriefCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+    }
+
+    func cached(siteID: String, withAI: Bool = false) -> HomeBriefBundle? {
+        let cacheURL = cacheFileURL(siteID: siteID, withAI: withAI)
+        guard let data = try? Data(contentsOf: cacheURL),
+              let cached = try? decoder.decode(CachedHomeBrief.self, from: data) else {
+            return nil
+        }
+        return cached.bundle
+    }
 
     func fetch(siteID: String, withAI: Bool = false) async throws -> HomeBriefBundle {
         print("[HomeBrief] request fn-home-brief-v0 site_id=\(siteID) with_ai=\(withAI)")
@@ -262,6 +295,8 @@ final class HomeBriefingService {
             }
             throw HomeBriefingServiceError.invalidResponse
         }
+
+        persist(bundle, siteID: siteID, withAI: withAI)
         return bundle
     }
 
@@ -284,5 +319,23 @@ final class HomeBriefingService {
     private func serialize<T: Encodable>(_ value: T) -> String? {
         guard let data = try? JSONEncoder().encode(value) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    private func persist(_ bundle: HomeBriefBundle, siteID: String, withAI: Bool) {
+        let payload = CachedHomeBrief(
+            siteID: siteID,
+            withAI: withAI,
+            savedAt: Date(),
+            bundle: bundle
+        )
+
+        guard let data = try? encoder.encode(payload) else { return }
+        try? data.write(to: cacheFileURL(siteID: siteID, withAI: withAI), options: .atomic)
+    }
+
+    private func cacheFileURL(siteID: String, withAI: Bool) -> URL {
+        let sanitizedSiteID = siteID.replacingOccurrences(of: "/", with: "-")
+        let suffix = withAI ? "ai" : "context"
+        return cacheDirectory.appendingPathComponent("\(sanitizedSiteID)-\(suffix).json")
     }
 }
