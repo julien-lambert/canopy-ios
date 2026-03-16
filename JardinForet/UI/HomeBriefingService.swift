@@ -242,11 +242,11 @@ final class HomeBriefingService {
 
     private init() {}
 
-    func fetch(siteID: String) async throws -> HomeBriefBundle {
-        print("[HomeBrief] request fn-home-brief-v0 site_id=\(siteID)")
+    func fetch(siteID: String, withAI: Bool = false) async throws -> HomeBriefBundle {
+        print("[HomeBrief] request fn-home-brief-v0 site_id=\(siteID) with_ai=\(withAI)")
         let envelope: CanopyDynamicRow = try await CanopyEdgeFunctionsClient.invoke(
             "fn-home-brief-v0",
-            body: ["site_id": .string(siteID)],
+            body: ["site_id": .string(siteID), "with_ai": .bool(withAI)],
             responseType: CanopyDynamicRow.self
         )
 

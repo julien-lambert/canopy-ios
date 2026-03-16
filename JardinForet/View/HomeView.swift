@@ -13,6 +13,7 @@ struct HomeView: View {
     @State private var pendingPlantEditor: GardenPlant?
     @State private var homeBrief: HomeBriefBundle?
     @State private var isLoadingHomeBrief = false
+    @State private var isAnalyzingHomeBrief = false
     @State private var homeBriefError: String?
     private let attentionAdvisor = HomeAttentionAdvisor()
     private let homeBriefService = HomeBriefingService.shared
@@ -420,8 +421,12 @@ struct HomeView: View {
                 HomeBriefCard(
                     bundle: homeBrief,
                     isRefreshing: isLoadingHomeBrief,
+                    isAnalyzing: isAnalyzingHomeBrief,
                     onRefresh: {
-                        Task { await refreshHomeBrief(force: true) }
+                        Task { await refreshHomeBrief(force: true, withAI: false) }
+                    },
+                    onAnalyze: {
+                        Task { await refreshHomeBrief(force: true, withAI: true) }
                     }
                 )
             } else if isLoadingHomeBrief {
@@ -436,7 +441,7 @@ struct HomeView: View {
                             .font(.subheadline)
                             .foregroundColor(.textSecondary)
                         Button("Reessayer") {
-                            Task { await refreshHomeBrief(force: true) }
+                            Task { await refreshHomeBrief(force: true, withAI: false) }
                         }
                         .canopySecondaryActionStyle()
                     }
@@ -533,7 +538,7 @@ struct HomeView: View {
     }
 
     @MainActor
-    private func refreshHomeBrief(force: Bool = false) async {
+    private func refreshHomeBrief(force: Bool = false, withAI: Bool = false) async {
         guard let siteID = workspaceStore.selectedSiteID, !siteID.isEmpty else {
             homeBrief = nil
             homeBriefError = nil
@@ -545,11 +550,21 @@ struct HomeView: View {
             return
         }
 
-        isLoadingHomeBrief = true
-        defer { isLoadingHomeBrief = false }
+        if withAI {
+            isAnalyzingHomeBrief = true
+        } else {
+            isLoadingHomeBrief = true
+        }
+        defer {
+            if withAI {
+                isAnalyzingHomeBrief = false
+            } else {
+                isLoadingHomeBrief = false
+            }
+        }
 
         do {
-            let loaded = try await homeBriefService.fetch(siteID: siteID)
+            let loaded = try await homeBriefService.fetch(siteID: siteID, withAI: withAI)
             homeBrief = loaded
             homeBriefError = nil
         } catch {
@@ -696,7 +711,9 @@ private struct PlantAttentionCard: View {
 private struct HomeBriefCard: View {
     let bundle: HomeBriefBundle
     let isRefreshing: Bool
+    let isAnalyzing: Bool
     let onRefresh: () -> Void
+    let onAnalyze: () -> Void
 
     var body: some View {
         let briefing = bundle.briefing
@@ -704,7 +721,7 @@ private struct HomeBriefCard: View {
 
         CanopyCard(
             title: "Meteo et priorites",
-            subtitle: bundle.llm.generated ? "Synthese reformulee avec Gemini" : "Synthese deterministe temporaire",
+            subtitle: homeBriefSubtitle,
             systemImage: "cloud.sun"
         ) {
             VStack(alignment: .leading, spacing: CanopySpacing.md) {
@@ -797,10 +814,18 @@ private struct HomeBriefCard: View {
                     Button {
                         onRefresh()
                     } label: {
-                        Label(isRefreshing ? "Actualisation..." : "Actualiser le brief", systemImage: "arrow.clockwise")
+                        Label(isRefreshing ? "Actualisation..." : "Actualiser", systemImage: "arrow.clockwise")
                     }
                     .canopySecondaryActionStyle()
-                    .disabled(isRefreshing)
+                    .disabled(isRefreshing || isAnalyzing)
+
+                    Button {
+                        onAnalyze()
+                    } label: {
+                        Label(isAnalyzing ? "Analyse..." : "Analyser avec l'IA", systemImage: "sparkles")
+                    }
+                    .canopyPrimaryActionStyle()
+                    .disabled(isRefreshing || isAnalyzing)
 
                     Spacer()
 
@@ -808,8 +833,22 @@ private struct HomeBriefCard: View {
                         .font(.caption2)
                         .foregroundColor(.textSecondary)
                 }
+
+                Text("L'analyse IA reste manuelle pour limiter les couts.")
+                    .font(.caption)
+                    .foregroundColor(.textSecondary)
             }
         }
+    }
+
+    private var homeBriefSubtitle: String {
+        if bundle.llm.generated {
+            return "Synthese reformulee avec Gemini"
+        }
+        if let error = bundle.llm.error, !error.isEmpty {
+            return "Brief deterministe (IA indisponible ou coupee)"
+        }
+        return "Contexte deterministe, analyse IA a la demande"
     }
 
     @ViewBuilder
