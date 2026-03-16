@@ -10,7 +10,6 @@ struct HomeBriefContextSnapshot: Decodable {
     struct Site: Decodable {
         let id: String
         let name: String
-        let plan: String
         let latitude: Double?
         let longitude: Double?
     }
