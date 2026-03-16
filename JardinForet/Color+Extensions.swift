@@ -58,6 +58,15 @@ extension Color {
         #endif
     }
 
+    // Couleur secondaire de soutien
+    static var accentSecondary: Color {
+        #if os(iOS)
+        Color(UIColor.systemTeal)
+        #else
+        Color(NSColor.systemTeal)
+        #endif
+    }
+
     // Texte secondaire
     static var textSecondary: Color {
         #if os(iOS)

@@ -59,9 +59,12 @@ struct CachedAsyncImage<Content: View, Placeholder: View>: View {
             trace("loadIfNeeded success url=\(url.absoluteString)")
         } catch {
             let nsError = error as NSError
-            print("[ImageTrace] loadIfNeeded failed url=\(url.absoluteString) error=\(nsError.domain)#\(nsError.code) \(nsError.localizedDescription)")
-            if nsError.domain == "ImageCache", nsError.code == 404 || nsError.code == 410 {
+            if nsError.isURLCancellation || error is CancellationError {
+                AppLog.debug("Chargement image annule: \(url)", category: .network)
+            } else if nsError.domain == "ImageCache", nsError.code == 404 || nsError.code == 410 {
                 AppLog.debug("Image indisponible (404/410): \(url)", category: .network)
+            } else if nsError.isTransientImageNetworkFailure {
+                AppLog.debug("Image temporairement indisponible: \(url)", category: .network)
             } else {
                 AppLog.warning("Erreur chargement image \(url): \(error)", category: .network)
             }
@@ -126,4 +129,26 @@ func resolvedPlantImageURL(local localValue: String?, remote remoteValue: String
         AppLog.info(line, category: .network)
     }
     return remote
+}
+
+private extension NSError {
+    var isURLCancellation: Bool {
+        domain == NSURLErrorDomain && code == NSURLErrorCancelled
+    }
+
+    var isTransientImageNetworkFailure: Bool {
+        guard domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorTimedOut,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorCannotFindHost,
+            NSURLErrorDNSLookupFailed,
+            NSURLErrorInternationalRoamingOff,
+            NSURLErrorCallIsActive,
+            NSURLErrorDataNotAllowed,
+            NSURLErrorCannotLoadFromNetwork
+        ].contains(code)
+    }
 }

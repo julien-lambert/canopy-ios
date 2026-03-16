@@ -176,6 +176,22 @@ struct GardenMapScreen: View {
         }
     }
 
+    private struct MapNorthBadge: View {
+        var body: some View {
+            VStack(spacing: 1) {
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                Text("N")
+                    .font(.caption2.weight(.bold))
+            }
+            .foregroundStyle(Color.primary)
+            .frame(width: 44, height: 44)
+            .background(Color.cardBackground.opacity(0.92))
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+        }
+    }
+
     // Filtre de strate (toutes / canopée / sous-étage / arbuste / herbacée / couvre-sol / liane)
     enum StrataFilter: String, CaseIterable, Identifiable {
         case all
@@ -345,8 +361,7 @@ struct GardenMapScreen: View {
 
                     Spacer()
 
-                    // Boussole Apple, toujours visible, calée à droite
-                    MapCompass()
+                    MapNorthBadge()
                         .canopyFloatingCircle()
                 }
 

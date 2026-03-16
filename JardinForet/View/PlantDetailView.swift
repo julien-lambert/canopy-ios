@@ -1,5 +1,4 @@
 import SwiftUI
-import MapKit
 
 struct PlantDetailView: View {
     @EnvironmentObject var store: CanopyStore
@@ -233,75 +232,74 @@ fileprivate struct PlantDetailContent: View {
         let latitude: Double
         let longitude: Double
 
-        @State private var cameraPosition: MapCameraPosition
-        @State private var canRenderMap = false
-        private let pin: LocationPin
-
-        init(latitude: Double, longitude: Double) {
-            self.latitude = latitude
-            self.longitude = longitude
-
-            let center = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-            let region = MKCoordinateRegion(
-                center: center,
-                span: MKCoordinateSpan(latitudeDelta: 0.0008, longitudeDelta: 0.0008)
-            )
-            _cameraPosition = State(initialValue: .region(region))
-
-            self.pin = LocationPin(coordinate: center)
-        }
-
         var body: some View {
-            Group {
-                if canRenderMap {
-                    Map(position: $cameraPosition) {
-                        Annotation("", coordinate: pin.coordinate) {
-                            PulsatingMarker()
-                        }
-                    }
-                } else {
-                    Color.black.opacity(0.08)
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.accentPrimary.opacity(0.14),
+                        Color.accentSecondary.opacity(0.10),
+                        Color.black.opacity(0.06)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                CoordinateGrid()
+                    .stroke(Color.white.opacity(0.14), lineWidth: 1)
+
+                VStack(spacing: 12) {
+                    Spacer(minLength: 0)
+
+                    StaticMarker()
+
+                    Spacer(minLength: 0)
+
+                    Text(String(format: "%.6f, %.6f", latitude, longitude))
+                        .font(.caption.monospacedDigit())
+                        .foregroundColor(.primary.opacity(0.85))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 14)
                 }
-            }
-            .onAppear {
-                // Evite l'initialisation Metal d'une Map dans une vue encore à 0x0.
-                DispatchQueue.main.async {
-                    canRenderMap = true
-                }
+                .padding(12)
             }
         }
 
-        private struct LocationPin: Identifiable {
-            let id = UUID()
-            let coordinate: CLLocationCoordinate2D
+        private struct CoordinateGrid: Shape {
+            func path(in rect: CGRect) -> Path {
+                var path = Path()
+                let verticalSteps = 5
+                let horizontalSteps = 4
+
+                for index in 1..<verticalSteps {
+                    let x = rect.minX + rect.width * CGFloat(index) / CGFloat(verticalSteps)
+                    path.move(to: CGPoint(x: x, y: rect.minY))
+                    path.addLine(to: CGPoint(x: x, y: rect.maxY))
+                }
+
+                for index in 1..<horizontalSteps {
+                    let y = rect.minY + rect.height * CGFloat(index) / CGFloat(horizontalSteps)
+                    path.move(to: CGPoint(x: rect.minX, y: y))
+                    path.addLine(to: CGPoint(x: rect.maxX, y: y))
+                }
+
+                return path
+            }
         }
 
-        private struct PulsatingMarker: View {
-            @State private var animate = false
-
+        private struct StaticMarker: View {
             var body: some View {
                 ZStack {
                     Circle()
-                        .fill(Color.accentPrimary.opacity(0.28))
-                        .frame(width: 60, height: 60)
-                        .scaleEffect(animate ? 1.4 : 0.8)
-                        .opacity(animate ? 0.0 : 1.0)
+                        .fill(Color.accentPrimary.opacity(0.20))
+                        .frame(width: 54, height: 54)
 
                     Circle()
-                        .fill(Color.accentPrimary.opacity(0.9))
+                        .fill(Color.accentPrimary)
                         .frame(width: 16, height: 16)
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white, lineWidth: 2)
-                        )
-                }
-                .onAppear {
-                    withAnimation(
-                        Animation.easeOut(duration: 1.4)
-                            .repeatForever(autoreverses: false)
-                    ) {
-                        animate = true
-                    }
+                        .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                        .shadow(color: Color.black.opacity(0.18), radius: 6, y: 2)
                 }
             }
         }

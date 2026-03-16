@@ -24,6 +24,8 @@ actor PersistentImageCache {
     private let directoryURL: URL
     private var failedRemoteURLs: [String: Date] = [:]
     private let failedURLTTL: TimeInterval = 60 * 60 * 12 // 12h
+    private var transientRemoteFailures: [String: Date] = [:]
+    private let transientFailureTTL: TimeInterval = 60 * 10 // 10 min
 
     init() {
         // ~/Library/Caches/ImageCache
@@ -74,6 +76,14 @@ actor PersistentImageCache {
                 userInfo: [NSLocalizedDescriptionKey: "URL image marquée invalide récemment: \(key)"]
             )
         }
+        if let failedAt = transientRemoteFailures[key], Date().timeIntervalSince(failedAt) < transientFailureTTL {
+            trace("recently transient-failed url=\(key)")
+            throw NSError(
+                domain: "ImageCache",
+                code: NSURLErrorTimedOut,
+                userInfo: [NSLocalizedDescriptionKey: "URL image temporairement indisponible: \(key)"]
+            )
+        }
 
         // 2) Disque
         let diskURL = fileURL(for: url)
@@ -98,12 +108,18 @@ actor PersistentImageCache {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
             let nsError = error as NSError
-            print("[ImageTrace] network error url=\(url.absoluteString) error=\(nsError.domain)#\(nsError.code) \(nsError.localizedDescription)")
-            trace("network fetch failed url=\(url.absoluteString)")
+            if nsError.isURLCancellation || error is CancellationError {
+                trace("network fetch cancelled url=\(url.absoluteString)")
+            } else if nsError.isTransientImageNetworkFailure {
+                transientRemoteFailures[key] = Date()
+                trace("network fetch transient failure url=\(url.absoluteString)")
+            } else {
+                AppLog.warning("Erreur reseau image \(url): \(nsError.localizedDescription)", category: .network)
+                trace("network fetch failed url=\(url.absoluteString)")
+            }
             throw error
         }
         guard let http = response as? HTTPURLResponse else {
-            print("[ImageCache] Response invalid for \(url.absoluteString)")
             throw NSError(
                 domain: "ImageCache",
                 code: -2,
@@ -115,7 +131,6 @@ actor PersistentImageCache {
             if http.statusCode == 404 || http.statusCode == 410 {
                 failedRemoteURLs[key] = Date()
             }
-            print("[ImageCache] HTTP \(http.statusCode) for \(url.absoluteString)")
             throw NSError(
                 domain: "ImageCache",
                 code: http.statusCode,
@@ -124,7 +139,6 @@ actor PersistentImageCache {
         }
 
         guard let image = PlatformImage(data: data) else {
-            print("[ImageCache] Invalid image data for \(url.absoluteString) contentType=\(http.value(forHTTPHeaderField: "Content-Type") ?? "n/a")")
             throw NSError(domain: "ImageCache",
                           code: -1,
                           userInfo: [
@@ -136,6 +150,7 @@ actor PersistentImageCache {
 
         memoryCache.setObject(image, forKey: nsURL)
         failedRemoteURLs.removeValue(forKey: key)
+        transientRemoteFailures.removeValue(forKey: key)
         try? data.write(to: diskURL, options: .atomic)
         trace("network fetch success url=\(url.absoluteString) file=\(diskURL.path)")
 
@@ -207,5 +222,27 @@ actor PersistentImageCache {
         let line = "[ImageTrace] \(message)"
         print(line)
         AppLog.info(line, category: .network)
+    }
+}
+
+private extension NSError {
+    var isURLCancellation: Bool {
+        domain == NSURLErrorDomain && code == NSURLErrorCancelled
+    }
+
+    var isTransientImageNetworkFailure: Bool {
+        guard domain == NSURLErrorDomain else { return false }
+        return [
+            NSURLErrorTimedOut,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorNotConnectedToInternet,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorCannotFindHost,
+            NSURLErrorDNSLookupFailed,
+            NSURLErrorInternationalRoamingOff,
+            NSURLErrorCallIsActive,
+            NSURLErrorDataNotAllowed,
+            NSURLErrorCannotLoadFromNetwork
+        ].contains(code)
     }
 }

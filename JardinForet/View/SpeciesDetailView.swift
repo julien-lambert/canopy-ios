@@ -1,5 +1,4 @@
 import SwiftUI
-import MapKit
 
 struct SpeciesDetailView: View {
     @EnvironmentObject var store: CanopyStore
@@ -413,68 +412,146 @@ struct SpeciesDetailView: View {
 fileprivate struct SpeciesPlantsMapSection: View {
     let plants: [GardenPlant]
 
-    @State private var cameraPosition: MapCameraPosition
-    @State private var canRenderMap = false
-
-    // On prépare une petite struct interne pour avoir des items Identifiable
     private struct GeoPlant: Identifiable {
         let id: Int
-        let coordinate: CLLocationCoordinate2D
+        let latitude: Double
+        let longitude: Double
     }
 
     private let geoPlants: [GeoPlant]
+    private let bounds: CoordinateBounds?
 
     init(plants: [GardenPlant]) {
         self.plants = plants
-
-        let coords = plants.compactMap { p -> GeoPlant? in
-            guard let lat = p.lat, let lon = p.lon else { return nil }
-            return GeoPlant(
-                id: p.id,
-                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon)
-            )
+        let coords = plants.compactMap { plant -> GeoPlant? in
+            guard let lat = plant.lat, let lon = plant.lon else { return nil }
+            return GeoPlant(id: plant.id, latitude: lat, longitude: lon)
         }
         self.geoPlants = coords
-
-        if let first = coords.first {
-            let region = MKCoordinateRegion(
-                center: first.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.003, longitudeDelta: 0.003)
-            )
-            _cameraPosition = State(initialValue: .region(region))
-        } else {
-            let region = MKCoordinateRegion(
-                center: CLLocationCoordinate2D(latitude: 45.0, longitude: 4.0),
-                span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
-            )
-            _cameraPosition = State(initialValue: .region(region))
-        }
+        self.bounds = CoordinateBounds(points: coords)
     }
 
     var body: some View {
         SectionCard(title: "Carte des individus") {
-            if geoPlants.isEmpty || !canRenderMap {
-                // Même style que MapPlaceholderView dans PlantDetail
+            if geoPlants.isEmpty {
                 SpeciesMapPlaceholderView()
                     .frame(height: 200)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
-                Map(position: $cameraPosition) {
-                    ForEach(geoPlants) { item in
-                        Annotation("", coordinate: item.coordinate) {
-                            SpeciesPulsatingMarker()
-                        }
-                    }
+                ZStack(alignment: .topTrailing) {
+                    StaticSpeciesMap(points: geoPlants, bounds: bounds)
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    Text("\(geoPlants.count) position\(geoPlants.count > 1 ? "s" : "")")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.primary.opacity(0.8))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(12)
                 }
-                .frame(height: 220)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
-        .onAppear {
-            // Evite l'initialisation Metal d'une Map dans une vue encore à 0x0.
-            DispatchQueue.main.async {
-                canRenderMap = true
+    }
+
+    private struct CoordinateBounds {
+        let minLatitude: Double
+        let maxLatitude: Double
+        let minLongitude: Double
+        let maxLongitude: Double
+
+        init?(points: [GeoPlant]) {
+            guard let first = points.first else { return nil }
+            var minLat = first.latitude
+            var maxLat = first.latitude
+            var minLon = first.longitude
+            var maxLon = first.longitude
+
+            for point in points.dropFirst() {
+                minLat = min(minLat, point.latitude)
+                maxLat = max(maxLat, point.latitude)
+                minLon = min(minLon, point.longitude)
+                maxLon = max(maxLon, point.longitude)
             }
+
+            let latPadding = max((maxLat - minLat) * 0.2, 0.0002)
+            let lonPadding = max((maxLon - minLon) * 0.2, 0.0002)
+
+            self.minLatitude = minLat - latPadding
+            self.maxLatitude = maxLat + latPadding
+            self.minLongitude = minLon - lonPadding
+            self.maxLongitude = maxLon + lonPadding
+        }
+    }
+
+    private struct StaticSpeciesMap: View {
+        let points: [GeoPlant]
+        let bounds: CoordinateBounds?
+
+        var body: some View {
+            GeometryReader { proxy in
+                ZStack {
+                    LinearGradient(
+                        colors: [
+                            Color.accentSecondary.opacity(0.08),
+                            Color.accentPrimary.opacity(0.14),
+                            Color.black.opacity(0.06)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+
+                    SpeciesCoordinateGrid()
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+
+                    ForEach(points) { point in
+                        SpeciesPulsatingMarker()
+                            .position(position(for: point, in: proxy.size))
+                    }
+                }
+            }
+        }
+
+        private func position(for point: GeoPlant, in size: CGSize) -> CGPoint {
+            guard let bounds else {
+                return CGPoint(x: size.width / 2, y: size.height / 2)
+            }
+
+            let lonRange = max(bounds.maxLongitude - bounds.minLongitude, 0.000001)
+            let latRange = max(bounds.maxLatitude - bounds.minLatitude, 0.000001)
+            let xRatio = (point.longitude - bounds.minLongitude) / lonRange
+            let yRatio = 1 - ((point.latitude - bounds.minLatitude) / latRange)
+            let inset: CGFloat = 20
+            let usableWidth = max(size.width - inset * 2, 1)
+            let usableHeight = max(size.height - inset * 2, 1)
+
+            return CGPoint(
+                x: inset + usableWidth * CGFloat(xRatio),
+                y: inset + usableHeight * CGFloat(yRatio)
+            )
+        }
+    }
+
+    private struct SpeciesCoordinateGrid: Shape {
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            let columns = 5
+            let rows = 4
+
+            for index in 1..<columns {
+                let x = rect.minX + rect.width * CGFloat(index) / CGFloat(columns)
+                path.move(to: CGPoint(x: x, y: rect.minY))
+                path.addLine(to: CGPoint(x: x, y: rect.maxY))
+            }
+
+            for index in 1..<rows {
+                let y = rect.minY + rect.height * CGFloat(index) / CGFloat(rows)
+                path.move(to: CGPoint(x: rect.minX, y: y))
+                path.addLine(to: CGPoint(x: rect.maxX, y: y))
+            }
+
+            return path
         }
     }
 }

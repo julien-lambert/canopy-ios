@@ -29,7 +29,8 @@ struct IGNVectorMapView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> MLNMapView {
-        let mapView = MLNMapView(frame: .zero, styleURL: ignStyleURL)
+        let bootstrapFrame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let mapView = MLNMapView(frame: bootstrapFrame, styleURL: ignStyleURL)
         mapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         mapView.delegate = context.coordinator
         mapView.showsUserLocation = true
@@ -48,7 +49,7 @@ struct IGNVectorMapView: UIViewRepresentable {
         paperTintView.alpha = 0.16
         mapView.addSubview(paperTintView)
 
-        let reliefMapView = MLNMapView(frame: mapView.bounds, styleURL: ignStyleURL)
+        let reliefMapView = MLNMapView(frame: bootstrapFrame, styleURL: ignStyleURL)
         reliefMapView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         reliefMapView.backgroundColor = .clear
         reliefMapView.isOpaque = false
@@ -78,6 +79,15 @@ struct IGNVectorMapView: UIViewRepresentable {
     func updateUIView(_ mapView: MLNMapView, context: Context) {
         let coordinator = context.coordinator
         let newSize = mapView.bounds.size
+        guard newSize.width > 1, newSize.height > 1 else {
+            coordinator.paperTintView?.isHidden = true
+            coordinator.reliefMapView?.isHidden = true
+            coordinator.markerOverlay?.isHidden = true
+            return
+        }
+
+        coordinator.paperTintView?.isHidden = false
+        coordinator.markerOverlay?.isHidden = false
         reliefOverlayFrameSync(mapView: mapView, coordinator: coordinator)
 
         coordinator.filteredPins = pins.filter { selectedStrataFilter.matches($0.strata) }
@@ -107,6 +117,7 @@ struct IGNVectorMapView: UIViewRepresentable {
     }
 
     private func reliefOverlayFrameSync(mapView: MLNMapView, coordinator: Coordinator) {
+        guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return }
         coordinator.paperTintView?.frame = mapView.bounds
         coordinator.reliefMapView?.frame = mapView.bounds
         coordinator.markerOverlay?.frame = mapView.bounds
@@ -213,6 +224,7 @@ struct IGNVectorMapView: UIViewRepresentable {
 
         func refreshContent() {
             guard let mapView else { return }
+            guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return }
 
             if !didSetInitialCamera {
                 didSetInitialCamera = true
@@ -235,6 +247,7 @@ struct IGNVectorMapView: UIViewRepresentable {
 
         private func syncReliefCameraFromMain() {
             guard let mapView, let reliefMapView else { return }
+            guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return }
             reliefMapView.setCenter(mapView.centerCoordinate, zoomLevel: mapView.zoomLevel, direction: mapView.direction, animated: false)
             if reliefMapView.camera.pitch != 0 {
                 reliefMapView.camera.pitch = 0
@@ -449,6 +462,7 @@ struct IGNVectorMapView: UIViewRepresentable {
 
         private func updateMarkerPositions() {
             guard let mapView else { return }
+            guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return }
             for (id, marker) in markerViewsByID {
                 guard let pin = pinByID[id] else { continue }
                 let point = mapView.convert(pin.coordinate, toPointTo: mapView)
