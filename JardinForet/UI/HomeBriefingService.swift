@@ -240,23 +240,49 @@ enum HomeBriefingServiceError: LocalizedError {
 final class HomeBriefingService {
     static let shared = HomeBriefingService()
 
-    private struct Envelope: Decodable {
-        let ok: Bool
-        let data: HomeBriefBundle?
-    }
-
     private init() {}
 
     func fetch(siteID: String) async throws -> HomeBriefBundle {
-        let envelope: Envelope = try await CanopyEdgeFunctionsClient.invoke(
+        print("[HomeBrief] request fn-home-brief-v0 site_id=\(siteID)")
+        let envelope: CanopyDynamicRow = try await CanopyEdgeFunctionsClient.invoke(
             "fn-home-brief-v0",
             body: ["site_id": .string(siteID)],
-            responseType: Envelope.self
+            responseType: CanopyDynamicRow.self
         )
 
-        guard envelope.ok, let data = envelope.data else {
+        if let rawEnvelope = serialize(envelope) {
+            print("[HomeBrief] response fn-home-brief-v0 \(rawEnvelope)")
+        }
+
+        guard jsonBool(envelope["ok"]) == true,
+              let payload = envelope["data"],
+              let bundle = decode(HomeBriefBundle.self, from: payload) else {
+            if let payload = envelope["data"], let rawPayload = serialize(payload) {
+                print("[HomeBrief] invalid payload fn-home-brief-v0 \(rawPayload)")
+            }
             throw HomeBriefingServiceError.invalidResponse
         }
-        return data
+        return bundle
+    }
+
+    private func decode<T: Decodable>(_ type: T.Type, from value: CanopyJSONValue) -> T? {
+        guard let data = try? JSONEncoder().encode(value) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func jsonBool(_ value: CanopyJSONValue?) -> Bool? {
+        switch value {
+        case .bool(let value):
+            return value
+        case .string(let value):
+            return Bool(value)
+        default:
+            return nil
+        }
+    }
+
+    private func serialize<T: Encodable>(_ value: T) -> String? {
+        guard let data = try? JSONEncoder().encode(value) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
