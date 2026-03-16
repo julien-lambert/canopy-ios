@@ -386,11 +386,15 @@ struct GardenMapView: View {
             .padding(.horizontal)
         }
         .sheet(item: $sheetPin) { pin in
-            if let plant = store.plants.first(where: { $0.id == pin.id }) {
-                PlantDetailView(plant: plant)
-            } else {
-                Text("Plante introuvable")
+            NavigationStack {
+                if let plant = store.plants.first(where: { $0.id == pin.id }) {
+                    PlantDetailView(plant: plant)
+                } else {
+                    Text("Plante introuvable")
+                }
             }
+            .presentationDragIndicator(.visible)
+            .interactiveDismissDisabled(false)
         }
         .confirmationDialog(
             "Action sur l'arbre",
