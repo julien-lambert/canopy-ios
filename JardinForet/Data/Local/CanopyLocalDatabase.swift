@@ -556,7 +556,7 @@ final class CanopyLocalDatabase {
                         updated_at,
                         deleted_at
                       )
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                       ON CONFLICT(remote_id) DO UPDATE SET
                         site_id = excluded.site_id,
                         species_global_id = excluded.species_global_id,
