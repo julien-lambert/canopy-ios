@@ -190,7 +190,9 @@ final class CanopyStore: ObservableObject {
                 "Map visibility defaults repaired for \(repairs.count) individus (spread=\(spreadBackfills), coords=\(coordinateBackfills))",
                 category: .database
             )
-            scheduleMapVisibilityRepairSync()
+            if didStartSyncSession {
+                scheduleMapVisibilityRepairSync()
+            }
         } catch {
             AppLog.error("Erreur repairMapVisibilityDefaultsIfNeeded: \(error)", category: .database)
         }
@@ -248,6 +250,7 @@ final class CanopyStore: ObservableObject {
     }
 
     private func scheduleMapVisibilityRepairSync() {
+        guard didStartSyncSession else { return }
         deferredMapVisibilitySyncTask?.cancel()
         deferredMapVisibilitySyncTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_000_000_000)
