@@ -29,10 +29,7 @@ final class CanopyStore: ObservableObject {
     private let localDB: CanopyLocalDatabase?
     private let syncEngine: CanopySyncEngine?
     private var syncTask: Task<Void, Never>?
-    private var deferredMapVisibilitySyncTask: Task<Void, Never>?
     private var didStartSyncSession = false
-    private var isRepairingMapVisibilityDefaults = false
-    private var isRepairingSiteIlotAssignments = false
 
     /// Species/individuals mutations are available on the local Canopy projection.
     var canMutateSpeciesAndIndividuals: Bool { localDB != nil }
@@ -143,8 +140,7 @@ final class CanopyStore: ObservableObject {
         if loaded {
             recoverSuspiciousCentroidPlacementsIfNeeded()
             AppLog.info("loadLocalData via Canopy local (\(plants.count) individus)", category: .sync)
-            repairMapVisibilityDefaultsIfNeeded()
-            repairSiteIlotAssociationsIfNeeded()
+            AppLog.debug("Cartographie locale chargee en lecture seule (aucune reparation implicite)", category: .map)
         } else {
             AppLog.warning("loadLocalData: snapshot local indisponible", category: .sync)
             plants = []
@@ -224,166 +220,6 @@ final class CanopyStore: ObservableObject {
         }
     }
 
-    private func repairMapVisibilityDefaultsIfNeeded() {
-        guard !isRepairingMapVisibilityDefaults, localDB != nil else {
-            return
-        }
-
-        let terrainFallback = terrainDefaultCoordinate()
-        var repairs: [(plant: GardenPlant, input: PlantWriteInput, reasons: [String])] = []
-        repairs.reserveCapacity(plants.count)
-
-        for plant in plants {
-            guard shouldEnsureMapVisibility(for: plant) else { continue }
-
-            let needsSpread = needsDefaultSpread(for: plant)
-            let needsCoordinate = needsTerrainCoordinateRepair(for: plant)
-            guard needsSpread || needsCoordinate else { continue }
-
-            let latitude = needsCoordinate ? roundedCoordinate(terrainFallback.latitude) : plant.lat
-            let longitude = needsCoordinate ? roundedCoordinate(terrainFallback.longitude) : plant.lon
-            let spread = needsSpread ? MapVisibilityDefaults.defaultCanopyDiameterMeters : plant.spreadCurrent
-
-            var reasons: [String] = []
-            if needsSpread {
-                reasons.append("spread_default_2m")
-            }
-            if needsCoordinate {
-                reasons.append("terrain_centroid")
-            }
-
-            repairs.append((
-                plant: plant,
-                input: PlantWriteInput(
-                    speciesId: plant.speciesID,
-                    varietyId: nil,
-                    siteIlotID: plant.siteIlotID,
-                    zone: plant.zone,
-                    notes: plant.notes,
-                    status: plant.status,
-                    microSite: plant.microSite,
-                    exposureLocal: plant.exposureLocal,
-                    soilLocal: plant.soilLocal,
-                    acquisitionType: plant.acquisitionType,
-                    acquisitionSource: plant.acquisitionSource,
-                    careNotes: plant.careNotes,
-                    heightCurrent: plant.heightCurrent,
-                    envergureCurrent: spread,
-                    latitude: latitude,
-                    longitude: longitude
-                ),
-                reasons: reasons
-            ))
-        }
-
-        guard !repairs.isEmpty else {
-            return
-        }
-
-        isRepairingMapVisibilityDefaults = true
-        defer { isRepairingMapVisibilityDefaults = false }
-
-        do {
-            var spreadBackfills = 0
-            var coordinateBackfills = 0
-
-            for repair in repairs {
-                if repair.reasons.contains("spread_default_2m") {
-                    spreadBackfills += 1
-                }
-                if repair.reasons.contains("terrain_centroid") {
-                    coordinateBackfills += 1
-                }
-                try updatePlantRecord(repair.plant, input: repair.input)
-            }
-
-            _ = loadLocalSnapshot()
-            AppLog.info(
-                "Map visibility defaults repaired for \(repairs.count) individus (spread=\(spreadBackfills), coords=\(coordinateBackfills))",
-                category: .database
-            )
-            if didStartSyncSession {
-                scheduleMapVisibilityRepairSync()
-            }
-        } catch {
-            AppLog.error("Erreur repairMapVisibilityDefaultsIfNeeded: \(error)", category: .database)
-        }
-    }
-
-    private func repairSiteIlotAssociationsIfNeeded() {
-        guard !isRepairingSiteIlotAssignments, let localDB else {
-            return
-        }
-
-        do {
-            guard let siteID = try localDB.currentSiteID(), !siteID.isEmpty else { return }
-            let ilots = try localDB.fetchSiteIlotsActive(siteID: siteID)
-            guard !ilots.isEmpty else { return }
-
-            var repairs: [(plant: GardenPlant, input: PlantWriteInput)] = []
-            repairs.reserveCapacity(plants.count)
-
-            for plant in plants {
-                guard let remoteID = plant.uuid, !remoteID.isEmpty else { continue }
-                let existing = try localDB.fetchIndividualRecord(remoteID: remoteID)
-                let resolvedSiteIlotID = try resolveLocalSiteIlotID(
-                    siteID: siteID,
-                    explicitSiteIlotID: plant.siteIlotID,
-                    latitude: plant.lat,
-                    longitude: plant.lon,
-                    zone: plant.zone,
-                    localDB: localDB,
-                    existing: existing
-                )
-
-                guard resolvedSiteIlotID != existing?.siteIlotID else { continue }
-
-                repairs.append((
-                    plant: plant,
-                    input: PlantWriteInput(
-                        speciesId: plant.speciesID,
-                        varietyId: nil,
-                        siteIlotID: resolvedSiteIlotID,
-                        zone: plant.zone,
-                        notes: plant.notes,
-                        status: plant.status,
-                        microSite: plant.microSite,
-                        exposureLocal: plant.exposureLocal,
-                        soilLocal: plant.soilLocal,
-                        acquisitionType: plant.acquisitionType,
-                        acquisitionSource: plant.acquisitionSource,
-                        careNotes: plant.careNotes,
-                        heightCurrent: plant.heightCurrent,
-                        envergureCurrent: plant.spreadCurrent,
-                        latitude: plant.lat,
-                        longitude: plant.lon
-                    )
-                ))
-            }
-
-            guard !repairs.isEmpty else { return }
-
-            isRepairingSiteIlotAssignments = true
-            defer { isRepairingSiteIlotAssignments = false }
-
-            for repair in repairs {
-                try updatePlantRecord(repair.plant, input: repair.input)
-            }
-
-            _ = loadLocalSnapshot()
-            AppLog.info("Site ilot associations repaired for \(repairs.count) individus", category: .database)
-            if didStartSyncSession {
-                scheduleMapVisibilityRepairSync()
-            }
-        } catch {
-            AppLog.error("Erreur repairSiteIlotAssociationsIfNeeded: \(error)", category: .database)
-        }
-    }
-
-    private func shouldEnsureMapVisibility(for plant: GardenPlant) -> Bool {
-        shouldAssignTerrainCoordinate(for: plant) || plant.lat != nil || plant.lon != nil
-    }
-
     private func shouldAssignTerrainCoordinate(for plant: GardenPlant) -> Bool {
         switch normalizedVisibilityStatus(plant.status) {
         case "plante", "malade", "a placer", "a deplacer", "mort", "":
@@ -391,24 +227,6 @@ final class CanopyStore: ObservableObject {
         default:
             return false
         }
-    }
-
-    private func needsDefaultSpread(for plant: GardenPlant) -> Bool {
-        guard shouldEnsureMapVisibility(for: plant) else { return false }
-        guard let spread = plant.spreadCurrent else { return true }
-        return spread <= 0
-    }
-
-    private func needsTerrainCoordinateRepair(for plant: GardenPlant) -> Bool {
-        guard shouldAssignTerrainCoordinate(for: plant) else { return false }
-        guard let lat = plant.lat, let lon = plant.lon else {
-            return true
-        }
-        // Never snap an already positioned plant back to the terrain centroid.
-        // Missing/invalid coordinates can be backfilled, but field positions stay authoritative.
-        return !CLLocationCoordinate2DIsValid(
-            CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        )
     }
 
     private func normalizedVisibilityStatus(_ status: String?) -> String {
@@ -439,17 +257,6 @@ final class CanopyStore: ObservableObject {
         }
 
         return MapVisibilityDefaults.fallbackCoordinate
-    }
-
-    private func scheduleMapVisibilityRepairSync() {
-        guard didStartSyncSession else { return }
-        deferredMapVisibilitySyncTask?.cancel()
-        deferredMapVisibilitySyncTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard let self else { return }
-            self.syncWithSupabase()
-            self.deferredMapVisibilitySyncTask = nil
-        }
     }
 
     // MARK: - Read access for UI (Database stays private to Store)
