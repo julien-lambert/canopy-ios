@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import MapKit
 
 final class CanopyStore: ObservableObject {
     enum DeleteCultivarResult {
@@ -22,7 +23,9 @@ final class CanopyStore: ObservableObject {
     private let localDB: CanopyLocalDatabase?
     private let syncEngine: CanopySyncEngine?
     private var syncTask: Task<Void, Never>?
+    private var deferredMapVisibilitySyncTask: Task<Void, Never>?
     private var didStartSyncSession = false
+    private var isRepairingMapVisibilityDefaults = false
 
     /// Species/individuals mutations are available on the local Canopy projection.
     var canMutateSpeciesAndIndividuals: Bool { localDB != nil }
@@ -93,6 +96,7 @@ final class CanopyStore: ObservableObject {
         let loaded = loadLocalSnapshot()
         if loaded {
             AppLog.info("loadLocalData via Canopy local (\(plants.count) individus)", category: .sync)
+            repairMapVisibilityDefaultsIfNeeded()
         } else {
             AppLog.warning("loadLocalData: snapshot local indisponible", category: .sync)
             plants = []
@@ -106,6 +110,151 @@ final class CanopyStore: ObservableObject {
         } else {
             AppLog.warning("loadLocalSpecies: snapshot local indisponible", category: .sync)
             species = []
+        }
+    }
+
+    private func repairMapVisibilityDefaultsIfNeeded() {
+        guard !isRepairingMapVisibilityDefaults, localDB != nil else {
+            return
+        }
+
+        let terrainFallback = terrainDefaultCoordinate()
+        var repairs: [(plant: GardenPlant, input: PlantWriteInput, reasons: [String])] = []
+        repairs.reserveCapacity(plants.count)
+
+        for plant in plants {
+            guard shouldEnsureMapVisibility(for: plant) else { continue }
+
+            let needsSpread = needsDefaultSpread(for: plant)
+            let needsCoordinate = needsTerrainCoordinateRepair(for: plant)
+            guard needsSpread || needsCoordinate else { continue }
+
+            let latitude = needsCoordinate ? roundedCoordinate(terrainFallback.latitude) : plant.lat
+            let longitude = needsCoordinate ? roundedCoordinate(terrainFallback.longitude) : plant.lon
+            let spread = needsSpread ? MapVisibilityDefaults.defaultCanopyDiameterMeters : plant.spreadCurrent
+
+            var reasons: [String] = []
+            if needsSpread {
+                reasons.append("spread_default_2m")
+            }
+            if needsCoordinate {
+                reasons.append("terrain_centroid")
+            }
+
+            repairs.append((
+                plant: plant,
+                input: PlantWriteInput(
+                    speciesId: plant.speciesID,
+                    varietyId: nil,
+                    zone: plant.zone,
+                    notes: plant.notes,
+                    status: plant.status,
+                    microSite: plant.microSite,
+                    exposureLocal: plant.exposureLocal,
+                    soilLocal: plant.soilLocal,
+                    acquisitionType: plant.acquisitionType,
+                    acquisitionSource: plant.acquisitionSource,
+                    careNotes: plant.careNotes,
+                    heightCurrent: plant.heightCurrent,
+                    envergureCurrent: spread,
+                    latitude: latitude,
+                    longitude: longitude
+                ),
+                reasons: reasons
+            ))
+        }
+
+        guard !repairs.isEmpty else {
+            return
+        }
+
+        isRepairingMapVisibilityDefaults = true
+        defer { isRepairingMapVisibilityDefaults = false }
+
+        do {
+            var spreadBackfills = 0
+            var coordinateBackfills = 0
+
+            for repair in repairs {
+                if repair.reasons.contains("spread_default_2m") {
+                    spreadBackfills += 1
+                }
+                if repair.reasons.contains("terrain_centroid") {
+                    coordinateBackfills += 1
+                }
+                try updatePlantRecord(repair.plant, input: repair.input)
+            }
+
+            _ = loadLocalSnapshot()
+            AppLog.info(
+                "Map visibility defaults repaired for \(repairs.count) individus (spread=\(spreadBackfills), coords=\(coordinateBackfills))",
+                category: .database
+            )
+            scheduleMapVisibilityRepairSync()
+        } catch {
+            AppLog.error("Erreur repairMapVisibilityDefaultsIfNeeded: \(error)", category: .database)
+        }
+    }
+
+    private func shouldEnsureMapVisibility(for plant: GardenPlant) -> Bool {
+        shouldAssignTerrainCoordinate(for: plant) || plant.lat != nil || plant.lon != nil
+    }
+
+    private func shouldAssignTerrainCoordinate(for plant: GardenPlant) -> Bool {
+        switch normalizedVisibilityStatus(plant.status) {
+        case "plante", "malade", "a placer", "a deplacer", "mort", "":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func needsDefaultSpread(for plant: GardenPlant) -> Bool {
+        guard shouldEnsureMapVisibility(for: plant) else { return false }
+        guard let spread = plant.spreadCurrent else { return true }
+        return spread <= 0
+    }
+
+    private func needsTerrainCoordinateRepair(for plant: GardenPlant) -> Bool {
+        guard shouldAssignTerrainCoordinate(for: plant) else { return false }
+        guard let lat = plant.lat, let lon = plant.lon else {
+            return true
+        }
+        return MapVisibilityDefaults.shouldSnapToTerrain(
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        )
+    }
+
+    private func normalizedVisibilityStatus(_ status: String?) -> String {
+        (status ?? "")
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .replacingOccurrences(of: "_", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    private func terrainDefaultCoordinate() -> CLLocationCoordinate2D {
+        if let coordinate = MapVisibilityDefaults.terrainCentroid {
+            return coordinate
+        }
+
+        if let coordinate = plants.first(where: { $0.lat != nil && $0.lon != nil }).flatMap({
+            guard let lat = $0.lat, let lon = $0.lon else { return nil }
+            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        }) {
+            return coordinate
+        }
+
+        return MapVisibilityDefaults.fallbackCoordinate
+    }
+
+    private func scheduleMapVisibilityRepairSync() {
+        deferredMapVisibilitySyncTask?.cancel()
+        deferredMapVisibilitySyncTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self else { return }
+            self.syncWithSupabase()
+            self.deferredMapVisibilitySyncTask = nil
         }
     }
 
@@ -1030,6 +1179,110 @@ final class CanopyStore: ObservableObject {
             payloadJSON: "{}"
         )
         return .success
+    }
+}
+
+private enum MapVisibilityDefaults {
+    static let defaultCanopyDiameterMeters: Double = 2.0
+    static let fallbackCoordinate = CLLocationCoordinate2D(
+        latitude: 45.348828976987036,
+        longitude: 4.0740432545957255
+    )
+
+    static let terrainPolygons: [[CLLocationCoordinate2D]] = loadTerrainPolygons()
+    static let terrainCentroid: CLLocationCoordinate2D? = centroid(of: terrainPolygons)
+
+    static func shouldSnapToTerrain(coordinate: CLLocationCoordinate2D) -> Bool {
+        guard CLLocationCoordinate2DIsValid(coordinate) else {
+            return true
+        }
+
+        guard !terrainPolygons.isEmpty else {
+            return false
+        }
+
+        return !terrainPolygons.contains { polygonContains(coordinate, polygon: $0) }
+    }
+
+    private static func loadTerrainPolygons() -> [[CLLocationCoordinate2D]] {
+        guard let url = Bundle.main.url(forResource: "terrain", withExtension: "geojson"),
+              let data = try? Data(contentsOf: url) else {
+            return []
+        }
+
+        let decoder = MKGeoJSONDecoder()
+        guard let objects = try? decoder.decode(data) else {
+            return []
+        }
+
+        var polygons: [[CLLocationCoordinate2D]] = []
+
+        for object in objects {
+            guard let feature = object as? MKGeoJSONFeature else { continue }
+
+            for geometry in feature.geometry {
+                if let multi = geometry as? MKMultiPolygon {
+                    for polygon in multi.polygons {
+                        let coordinates = polygon.coordinatesArrayForVisibilityDefaults
+                        if coordinates.count >= 3 {
+                            polygons.append(coordinates)
+                        }
+                    }
+                    continue
+                }
+
+                if let polygon = geometry as? MKPolygon {
+                    let coordinates = polygon.coordinatesArrayForVisibilityDefaults
+                    if coordinates.count >= 3 {
+                        polygons.append(coordinates)
+                    }
+                }
+            }
+        }
+
+        return polygons
+    }
+
+    private static func centroid(of polygons: [[CLLocationCoordinate2D]]) -> CLLocationCoordinate2D? {
+        let coordinates = polygons.flatMap { $0 }.filter { CLLocationCoordinate2DIsValid($0) }
+        guard !coordinates.isEmpty else { return nil }
+
+        let latitude = coordinates.map(\.latitude).reduce(0, +) / Double(coordinates.count)
+        let longitude = coordinates.map(\.longitude).reduce(0, +) / Double(coordinates.count)
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    private static func polygonContains(_ coordinate: CLLocationCoordinate2D, polygon: [CLLocationCoordinate2D]) -> Bool {
+        guard polygon.count >= 3 else { return false }
+
+        var contains = false
+        var previous = polygon.last!
+
+        for current in polygon {
+            let denominator = previous.longitude - current.longitude
+            let safeDenominator = abs(denominator) < 0.000_000_001
+                ? (denominator < 0 ? -0.000_000_001 : 0.000_000_001)
+                : denominator
+            let intersects = ((current.longitude > coordinate.longitude) != (previous.longitude > coordinate.longitude))
+                && (coordinate.latitude < (previous.latitude - current.latitude)
+                    * (coordinate.longitude - current.longitude)
+                    / safeDenominator
+                    + current.latitude)
+            if intersects {
+                contains.toggle()
+            }
+            previous = current
+        }
+
+        return contains
+    }
+}
+
+private extension MKPolygon {
+    var coordinatesArrayForVisibilityDefaults: [CLLocationCoordinate2D] {
+        var coordinates = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: pointCount)
+        getCoordinates(&coordinates, range: NSRange(location: 0, length: pointCount))
+        return coordinates.filter { CLLocationCoordinate2DIsValid($0) }
     }
 }
 
