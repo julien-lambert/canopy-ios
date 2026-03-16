@@ -70,8 +70,8 @@ struct GardenMapScreen: View {
     // Sélection éventuelle d’un pin (si tu veux ensuite afficher un panneau)
     @State private var selectedPin: PlantPin?
     @State private var activeSheet: ActiveSheet? = nil
-    @State private var pendingLongPressPin: PlantPin? = nil
     @State private var editingDraft: PlantEditDraft? = nil
+    @State private var mapContextSelection: MapContextSelection? = nil
 
     // Style logique de la carte (photo / plan NB)
     enum MapBaseStyle {
@@ -96,6 +96,33 @@ struct GardenMapScreen: View {
         let commonName: String
         var coordinate: CLLocationCoordinate2D
         var canopyDiameterMeters: Double
+    }
+
+    private enum MapContextSelection: Identifiable {
+        case pin(PlantPin)
+        case coordinate(CLLocationCoordinate2D, suggestedIlotName: String?)
+
+        var id: String {
+            switch self {
+            case .pin(let pin):
+                return "pin-\(pin.id)"
+            case .coordinate(let coordinate, _):
+                return String(
+                    format: "coord-%.6f-%.6f",
+                    coordinate.latitude,
+                    coordinate.longitude
+                )
+            }
+        }
+
+        var coordinate: CLLocationCoordinate2D {
+            switch self {
+            case .pin(let pin):
+                return pin.coordinate
+            case .coordinate(let coordinate, _):
+                return coordinate
+            }
+        }
     }
 
     private let canopyMinMeters: Double = 0.02   // 2 cm
@@ -243,34 +270,60 @@ struct GardenMapScreen: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            if pins.isEmpty && terrainPolygons.isEmpty && ilotPolygons.isEmpty && !store.hasMapReference {
-                MapPlaceholderView()
-                    .ignoresSafeArea(edges: .top)
-            } else {
-                Group {
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                if pins.isEmpty && terrainPolygons.isEmpty && ilotPolygons.isEmpty && !store.hasMapReference {
+                    MapPlaceholderView()
+                        .ignoresSafeArea(edges: .top)
+                } else {
+                    Group {
 #if os(iOS) && canImport(MapLibre)
-                    if selectedMapBaseStyle == .ignPlan {
-                        IGNVectorMapView(
-                            pins: pins,
-                            selectedStrataFilter: selectedStrataFilter,
-                            terrainPolygons: terrainPolygons,
-                            ilotPolygons: ilotPolygons,
-                            initialCenterCoordinate: store.mapReferenceCoordinate,
-                            hillshadeEnabled: hillshadeEnabled,
-                            hillshadeOpacity: 1.0,
-                            editingDraft: editingDraft,
-                            onPinTap: handlePinTap,
-                            onPinLongPress: handlePinLongPress,
-                            onPinDrag: { pin, coordinate in
-                                guard editingDraft?.id == pin.id else { return }
-                                editingDraft?.coordinate = coordinate
-                            },
-                            onRegionChange: { region in
-                                currentRegion = region
-                            }
-                        )
-                    } else {
+                        if selectedMapBaseStyle == .ignPlan {
+                            IGNVectorMapView(
+                                pins: pins,
+                                selectedStrataFilter: selectedStrataFilter,
+                                terrainPolygons: terrainPolygons,
+                                ilotPolygons: ilotPolygons,
+                                initialCenterCoordinate: store.mapReferenceCoordinate,
+                                hillshadeEnabled: hillshadeEnabled,
+                                hillshadeOpacity: 1.0,
+                                editingDraft: editingDraft,
+                                onPinTap: handlePinTap,
+                                onPinLongPress: handlePinLongPress,
+                                onMapLongPress: handleMapLongPress,
+                                onPinDrag: { pin, coordinate in
+                                    guard editingDraft?.id == pin.id else { return }
+                                    editingDraft?.coordinate = coordinate
+                                },
+                                onRegionChange: { region in
+                                    currentRegion = region
+                                }
+                            )
+                        } else {
+                            GardenMapUIKitView(
+                                pins: pins,
+                                selectedStrataFilter: selectedStrataFilter,
+                                terrainPolygons: terrainPolygons,
+                                ilotPolygons: ilotPolygons,
+                                initialCenterCoordinate: store.mapReferenceCoordinate,
+                                mapBaseStyle: selectedMapBaseStyle,
+                                hillshadeEnabled: hillshadeEnabled,
+                                hillshadeOpacity: 1.0,
+                                colorScheme: colorScheme,
+                                editingDraft: editingDraft,
+                                onPinTap: handlePinTap,
+                                onPinLongPress: handlePinLongPress,
+                                onMapLongPress: handleMapLongPress,
+                                onPinDrag: { pin, coordinate in
+                                    guard editingDraft?.id == pin.id else { return }
+                                    editingDraft?.coordinate = coordinate
+                                },
+                                onRegionChange: { region in
+                                    currentRegion = region
+                                }
+                            )
+                        }
+#else
                         GardenMapUIKitView(
                             pins: pins,
                             selectedStrataFilter: selectedStrataFilter,
@@ -284,6 +337,7 @@ struct GardenMapScreen: View {
                             editingDraft: editingDraft,
                             onPinTap: handlePinTap,
                             onPinLongPress: handlePinLongPress,
+                            onMapLongPress: handleMapLongPress,
                             onPinDrag: { pin, coordinate in
                                 guard editingDraft?.id == pin.id else { return }
                                 editingDraft?.coordinate = coordinate
@@ -292,138 +346,135 @@ struct GardenMapScreen: View {
                                 currentRegion = region
                             }
                         )
-                    }
-#else
-                    GardenMapUIKitView(
-                        pins: pins,
-                        selectedStrataFilter: selectedStrataFilter,
-                        terrainPolygons: terrainPolygons,
-                        ilotPolygons: ilotPolygons,
-                        initialCenterCoordinate: store.mapReferenceCoordinate,
-                        mapBaseStyle: selectedMapBaseStyle,
-                        hillshadeEnabled: hillshadeEnabled,
-                        hillshadeOpacity: 1.0,
-                        colorScheme: colorScheme,
-                        editingDraft: editingDraft,
-                        onPinTap: handlePinTap,
-                        onPinLongPress: handlePinLongPress,
-                        onPinDrag: { pin, coordinate in
-                            guard editingDraft?.id == pin.id else { return }
-                            editingDraft?.coordinate = coordinate
-                        },
-                        onRegionChange: { region in
-                            currentRegion = region
-                        }
-                    )
 #endif
-                }
-                .ignoresSafeArea(edges: .top)
-            }
-
-            if placementControlsVisible {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 28, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(Color.accentPrimary)
-                    .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
-                    .allowsHitTesting(false)
-            }
-
-            // headerOverlay
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    HStack(spacing: 6) {
-                        MapStyleChip(
-                            systemName: "photo.on.rectangle",
-                            label: "Photo",
-                            isActive: selectedMapBaseStyle == .photo
-                        ) {
-                            selectedMapBaseStyle = .photo
-                        }
-
-                        MapStyleChip(
-                            systemName: "globe.europe.africa",
-                            label: "IGN Plan",
-                            isActive: selectedMapBaseStyle == .ignPlan
-                        ) {
-                            selectedMapBaseStyle = .ignPlan
-                        }
-
-                        MapStyleChip(
-                            systemName: hillshadeEnabled ? "mountain.2.fill" : "mountain.2",
-                            label: "Relief",
-                            isActive: hillshadeEnabled
-                        ) {
-                            hillshadeEnabled.toggle()
-                        }
                     }
-                    .canopyFloatingCapsule()
-
-                    Spacer()
-
-                    MapNorthBadge()
-                        .canopyFloatingCircle()
+                    .ignoresSafeArea(edges: .top)
                 }
 
-                // (StrataFilterBar moved to bottom overlay)
-                Spacer()
-            }
-            .padding(.horizontal)
-            .padding(.top, 8)
+                if placementControlsVisible && mapContextSelection == nil {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.accentPrimary)
+                        .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                        .allowsHitTesting(false)
+                }
 
-            // Bottom overlay: strata filter bar
-            VStack {
-                Spacer()
-                if let draft = editingDraft {
-                    CanopyCard(
-                        title: "Modifier un individu",
-                        subtitle: draft.commonName,
-                        systemImage: "move.3d"
-                    ) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Canopée: \(formattedCanopyLength(draft.canopyDiameterMeters))")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                // headerOverlay
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        HStack(spacing: 6) {
+                            MapStyleChip(
+                                systemName: "photo.on.rectangle",
+                                label: "Photo",
+                                isActive: selectedMapBaseStyle == .photo
+                            ) {
+                                selectedMapBaseStyle = .photo
+                            }
 
-                            Slider(
-                                value: Binding(
-                                    get: {
-                                        let size = editingDraft?.canopyDiameterMeters ?? draft.canopyDiameterMeters
-                                        return logarithmicUnitValue(for: size)
-                                    },
-                                    set: { newValue in
-                                        editingDraft?.canopyDiameterMeters = canopySizeFromLogarithmicUnit(newValue)
-                                    }
-                                ),
-                                in: 0...1
-                            )
+                            MapStyleChip(
+                                systemName: "globe.europe.africa",
+                                label: "IGN Plan",
+                                isActive: selectedMapBaseStyle == .ignPlan
+                            ) {
+                                selectedMapBaseStyle = .ignPlan
+                            }
 
-                            HStack(spacing: 10) {
-                                Button("Annuler", role: .cancel) {
-                                    editingDraft = nil
-                                }
-                                .canopySecondaryActionStyle()
-
-                                Button("Enregistrer") {
-                                    saveCurrentPlantEdit()
-                                }
-                                .canopyPrimaryActionStyle()
+                            MapStyleChip(
+                                systemName: hillshadeEnabled ? "mountain.2.fill" : "mountain.2",
+                                label: "Relief",
+                                isActive: hillshadeEnabled
+                            ) {
+                                hillshadeEnabled.toggle()
                             }
                         }
-                    }
-                    .padding(.bottom, 10)
-                }
-                if placementControlsVisible {
-                    placementControls
-                        .padding(.bottom, 10)
-                }
-                HStack {
-                    StrataFilterBar(selected: $selectedStrataFilter)
                         .canopyFloatingCapsule()
+
+                        Spacer()
+
+                        MapNorthBadge()
+                            .canopyFloatingCircle()
+                    }
+
+                    // (StrataFilterBar moved to bottom overlay)
+                    Spacer()
                 }
-                .padding(.bottom, 20)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                // Bottom overlay: strata filter bar
+                VStack {
+                    Spacer()
+                    if let draft = editingDraft {
+                        CanopyCard(
+                            title: "Modifier un individu",
+                            subtitle: draft.commonName,
+                            systemImage: "move.3d"
+                        ) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Canopée: \(formattedCanopyLength(draft.canopyDiameterMeters))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+
+                                Slider(
+                                    value: Binding(
+                                        get: {
+                                            let size = editingDraft?.canopyDiameterMeters ?? draft.canopyDiameterMeters
+                                            return logarithmicUnitValue(for: size)
+                                        },
+                                        set: { newValue in
+                                            editingDraft?.canopyDiameterMeters = canopySizeFromLogarithmicUnit(newValue)
+                                        }
+                                    ),
+                                    in: 0...1
+                                )
+
+                                HStack(spacing: 10) {
+                                    Button("Annuler", role: .cancel) {
+                                        editingDraft = nil
+                                    }
+                                    .canopySecondaryActionStyle()
+
+                                    Button("Enregistrer") {
+                                        saveCurrentPlantEdit()
+                                    }
+                                    .canopyPrimaryActionStyle()
+                                }
+                            }
+                        }
+                        .padding(.bottom, 10)
+                    }
+                    if placementControlsVisible {
+                        placementControls
+                            .padding(.bottom, 10)
+                    }
+                    HStack {
+                        StrataFilterBar(selected: $selectedStrataFilter)
+                            .canopyFloatingCapsule()
+                    }
+                    .padding(.bottom, 20)
+                }
+                .padding(.horizontal)
+
+                if mapContextSelection != nil {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .ignoresSafeArea(edges: .top)
+                        .onTapGesture {
+                            mapContextSelection = nil
+                        }
+                }
+
+                if let mapContextSelection {
+                    contextMenuOverlay(for: mapContextSelection, in: geometry.size)
+                }
             }
-            .padding(.horizontal)
+            .onAppear {
+                mapViewportSize = geometry.size
+            }
+            .onChange(of: geometry.size) { _, newSize in
+                mapViewportSize = newSize
+            }
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -441,32 +492,6 @@ struct GardenMapScreen: View {
                 IndividualSheet(mode: .create(prefill: prefill))
                     .environmentObject(store)
             }
-        }
-        .confirmationDialog(
-            "Action sur l'arbre",
-            isPresented: Binding(
-                get: { pendingLongPressPin != nil },
-                set: { if !$0 { pendingLongPressPin = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Ouvrir la fiche") {
-                if let pin = pendingLongPressPin {
-                    activeSheet = .individual(pin.id)
-                }
-                pendingLongPressPin = nil
-            }
-            Button("Modifier position et taille") {
-                if let pin = pendingLongPressPin {
-                    beginEditing(pin)
-                }
-                pendingLongPressPin = nil
-            }
-            Button("Annuler", role: .cancel) {
-                pendingLongPressPin = nil
-            }
-        } message: {
-            Text("Choisis l'action à effectuer sur cet individu.")
         }
         .onAppear {
             let initialCenter = initialCenterCoordinate()
@@ -571,9 +596,9 @@ struct GardenMapScreen: View {
     private var placementCardSubtitle: String {
         switch mode {
         case .pick:
-            return "Déplace la carte, puis confirme le point au centre."
+            return "Appui long pour choisir le point exact, ou déplace la carte puis confirme le centre."
         case .place:
-            return "Déplace la carte, puis ouvre la fiche pré-remplie."
+            return "Appui long pour créer au point exact, ou déplace la carte puis ouvre la fiche pré-remplie."
         case .view, .edit:
             return ""
         }
@@ -602,6 +627,9 @@ struct GardenMapScreen: View {
     }
 
     private var placementCoordinate: CLLocationCoordinate2D {
+        if case .coordinate(let coordinate, _) = mapContextSelection {
+            return coordinate
+        }
         if let region = currentRegion {
             return region.center
         }
@@ -613,19 +641,20 @@ struct GardenMapScreen: View {
             latitude: 45.348828976987036,
             longitude: 4.0740432545957255
         )
+        let userCoordinate = locationManager.location?.coordinate
 
         switch mode {
         case .pick(let initialCoordinate, _):
-            return initialCoordinate ?? store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
+            return initialCoordinate ?? userCoordinate ?? store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
         case .edit(let plantID):
             if let plant = store.plants.first(where: { $0.id == plantID }),
                let lat = plant.lat,
                let lon = plant.lon {
                 return CLLocationCoordinate2D(latitude: lat, longitude: lon)
             }
-            return store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
+            return userCoordinate ?? store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
         case .place:
-            return store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
+            return userCoordinate ?? store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
         case .view:
             return store.mapReferenceCoordinate ?? fallbackReferenceCoordinate
         }
@@ -648,6 +677,7 @@ struct GardenMapScreen: View {
             break
         }
 
+        mapContextSelection = nil
         if selectedPin?.id == pin.id {
             activeSheet = .individual(pin.id)
         } else {
@@ -660,7 +690,20 @@ struct GardenMapScreen: View {
         case .pick, .place:
             return
         case .view, .edit:
-            pendingLongPressPin = pin
+            selectedPin = pin
+            mapContextSelection = .pin(pin)
+        }
+    }
+
+    private func handleMapLongPress(_ coordinate: CLLocationCoordinate2D) {
+        selectedPin = nil
+
+        switch mode {
+        case .pick, .place, .view, .edit:
+            mapContextSelection = .coordinate(
+                coordinate,
+                suggestedIlotName: suggestedSiteIlotName(for: coordinate)
+            )
         }
     }
 
@@ -670,6 +713,7 @@ struct GardenMapScreen: View {
         switch mode {
         case .pick(_, let onPick):
             onPick(coordinate)
+            mapContextSelection = nil
             dismiss()
 
         case .place(let speciesID):
@@ -685,6 +729,7 @@ struct GardenMapScreen: View {
                     longitude: coordinate.longitude
                 )
             )
+            mapContextSelection = nil
 
         case .view, .edit:
             break
@@ -693,6 +738,7 @@ struct GardenMapScreen: View {
 
     private func beginEditing(_ pin: PlantPin) {
         selectedPin = pin
+        mapContextSelection = nil
         editingDraft = PlantEditDraft(
             id: pin.id,
             commonName: pin.commonName,
@@ -713,7 +759,191 @@ struct GardenMapScreen: View {
             canopyDiameterMeters: max(canopyMinMeters, min(canopyMaxMeters, draft.canopyDiameterMeters))
         )
         editingDraft = nil
+        mapContextSelection = nil
         reloadPins()
+    }
+
+    private func suggestedSiteIlotName(for coordinate: CLLocationCoordinate2D) -> String? {
+        guard let siteIlotID = store.suggestedSiteIlotID(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        ) else {
+            return nil
+        }
+
+        guard let siteIlot = store.siteIlots.first(where: { $0.id == siteIlotID }) else {
+            return nil
+        }
+
+        return [siteIlot.code, siteIlot.name]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
+    }
+
+    private func openIndividualDetail(from selection: MapContextSelection) {
+        guard case .pin(let pin) = selection else { return }
+        mapContextSelection = nil
+        activeSheet = .individual(pin.id)
+    }
+
+    private func createIndividual(from selection: MapContextSelection) {
+        guard case .coordinate(let coordinate, _) = selection else { return }
+
+        let speciesID: Int?
+        switch mode {
+        case .place(let value):
+            speciesID = value
+        case .view, .edit, .pick:
+            speciesID = nil
+        }
+
+        let suggestedSiteIlotID = store.suggestedSiteIlotID(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
+
+        mapContextSelection = nil
+        activeSheet = .create(
+            PlantFormPrefill(
+                speciesID: speciesID,
+                siteIlotID: suggestedSiteIlotID,
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude
+            )
+        )
+    }
+
+    @ViewBuilder
+    private func contextMenuOverlay(for selection: MapContextSelection, in size: CGSize) -> some View {
+        if let anchor = mapContextAnchor(for: selection.coordinate, in: size) {
+            let cardWidth = min(size.width - 32, 300.0)
+            let cardX = min(max(anchor.x, cardWidth / 2 + 16), size.width - cardWidth / 2 - 16)
+            let placeAbove = anchor.y > 170
+            let cardCenterY = placeAbove
+                ? max(96, anchor.y - 84)
+                : min(size.height - 120, anchor.y + 92)
+
+            VStack(spacing: 0) {
+                if !placeAbove {
+                    Triangle()
+                        .fill(Color.cardBackground.opacity(0.96))
+                        .frame(width: 18, height: 10)
+                        .rotationEffect(.degrees(180))
+                        .shadow(color: .black.opacity(0.10), radius: 5, y: 2)
+                        .padding(.bottom, 4)
+                }
+
+                contextMenuCard(for: selection)
+                    .frame(width: cardWidth)
+
+                if placeAbove {
+                    Triangle()
+                        .fill(Color.cardBackground.opacity(0.96))
+                        .frame(width: 18, height: 10)
+                        .shadow(color: .black.opacity(0.10), radius: 5, y: 2)
+                        .padding(.top, 4)
+                }
+            }
+            .position(x: cardX, y: cardCenterY)
+            .transition(.scale(scale: 0.96).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private func contextMenuCard(for selection: MapContextSelection) -> some View {
+        switch selection {
+        case .pin(let pin):
+            CanopyCard(
+                title: pin.commonName,
+                subtitle: pin.zone ?? pin.varietyName ?? "Individu du jardin",
+                systemImage: "tree"
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(String(format: "%.6f, %.6f", pin.coordinate.latitude, pin.coordinate.longitude))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
+                        Button("Ouvrir la fiche") {
+                            openIndividualDetail(from: selection)
+                        }
+                        .canopyPrimaryActionStyle()
+
+                        Button("Déplacer") {
+                            beginEditing(pin)
+                        }
+                        .canopySecondaryActionStyle()
+                    }
+                }
+            }
+
+        case .coordinate(let coordinate, let suggestedIlotName):
+            let subtitle = suggestedIlotName.map { "Îlot suggéré : \($0)" } ?? "Aucun îlot sûr détecté"
+            let copy = contextMenuCopyForCoordinateSelection()
+
+            CanopyCard(
+                title: copy.title,
+                subtitle: subtitle,
+                systemImage: "mappin.and.ellipse"
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
+                        Button(copy.actionTitle) {
+                            switch mode {
+                            case .pick:
+                                confirmPlacement()
+                            case .place, .view, .edit:
+                                createIndividual(from: selection)
+                            }
+                        }
+                        .canopyPrimaryActionStyle()
+
+                        Button("Annuler", role: .cancel) {
+                            mapContextSelection = nil
+                        }
+                        .canopySecondaryActionStyle()
+                    }
+                }
+            }
+        }
+    }
+
+    private func mapContextAnchor(for coordinate: CLLocationCoordinate2D, in size: CGSize) -> CGPoint? {
+        guard let region = currentRegion, size.width > 1, size.height > 1 else { return nil }
+
+        let minLatitude = region.center.latitude - region.span.latitudeDelta / 2
+        let maxLatitude = region.center.latitude + region.span.latitudeDelta / 2
+        let minLongitude = region.center.longitude - region.span.longitudeDelta / 2
+        let maxLongitude = region.center.longitude + region.span.longitudeDelta / 2
+        let latRange = max(maxLatitude - minLatitude, 0.0000001)
+        let lonRange = max(maxLongitude - minLongitude, 0.0000001)
+        let xRatio = (coordinate.longitude - minLongitude) / lonRange
+        let yRatio = 1 - ((coordinate.latitude - minLatitude) / latRange)
+
+        guard xRatio.isFinite, yRatio.isFinite else { return nil }
+
+        return CGPoint(
+            x: CGFloat(min(max(xRatio, 0), 1)) * size.width,
+            y: CGFloat(min(max(yRatio, 0), 1)) * size.height
+        )
+    }
+
+    private func contextMenuCopyForCoordinateSelection() -> (title: String, actionTitle: String) {
+        switch mode {
+        case .pick:
+            return ("Point sélectionné", "Utiliser ce point")
+        case .place:
+            return ("Créer un individu ici", "Ouvrir la fiche")
+        case .view, .edit:
+            return ("Nouvel individu ici", "Créer ici")
+        }
     }
 
     private func logarithmicUnitValue(for sizeMeters: Double) -> Double {
@@ -1562,11 +1792,12 @@ private struct GardenMapUIKitView: NSViewRepresentable {
     let editingDraft: GardenMapScreen.PlantEditDraft?
     let onPinTap: (GardenMapScreen.PlantPin) -> Void
     let onPinLongPress: (GardenMapScreen.PlantPin) -> Void
+    let onMapLongPress: (CLLocationCoordinate2D) -> Void
     let onPinDrag: (GardenMapScreen.PlantPin, CLLocationCoordinate2D) -> Void
     let onRegionChange: (MKCoordinateRegion) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPinTap: onPinTap, onPinLongPress: onPinLongPress, onRegionChange: onRegionChange)
+        Coordinator(onPinTap: onPinTap, onPinLongPress: onPinLongPress, onMapLongPress: onMapLongPress, onRegionChange: onRegionChange)
     }
 
     func makeNSView(context: Context) -> MKMapView {
@@ -1724,6 +1955,7 @@ private struct GardenMapUIKitView: NSViewRepresentable {
         weak var mapView: MKMapView?
         let onPinTap: (GardenMapScreen.PlantPin) -> Void
         let onPinLongPress: (GardenMapScreen.PlantPin) -> Void
+        let onMapLongPress: (CLLocationCoordinate2D) -> Void
         let onRegionChange: (MKCoordinateRegion) -> Void
         var didSetInitialRegion = false
         var hillshadeOpacity: Double = 0.35
@@ -1732,9 +1964,11 @@ private struct GardenMapUIKitView: NSViewRepresentable {
 
         init(onPinTap: @escaping (GardenMapScreen.PlantPin) -> Void,
              onPinLongPress: @escaping (GardenMapScreen.PlantPin) -> Void,
+             onMapLongPress: @escaping (CLLocationCoordinate2D) -> Void,
              onRegionChange: @escaping (MKCoordinateRegion) -> Void) {
             self.onPinTap = onPinTap
             self.onPinLongPress = onPinLongPress
+            self.onMapLongPress = onMapLongPress
             self.onRegionChange = onRegionChange
         }
 
@@ -1841,6 +2075,7 @@ private struct GardenMapUIKitView: UIViewRepresentable {
     let editingDraft: GardenMapScreen.PlantEditDraft?
     let onPinTap: (GardenMapScreen.PlantPin) -> Void
     let onPinLongPress: (GardenMapScreen.PlantPin) -> Void
+    let onMapLongPress: (CLLocationCoordinate2D) -> Void
     let onPinDrag: (GardenMapScreen.PlantPin, CLLocationCoordinate2D) -> Void
     let onRegionChange: (MKCoordinateRegion) -> Void
 
@@ -1848,6 +2083,7 @@ private struct GardenMapUIKitView: UIViewRepresentable {
         Coordinator(
             onPinTap: onPinTap,
             onPinLongPress: onPinLongPress,
+            onMapLongPress: onMapLongPress,
             onPinDrag: onPinDrag,
             onRegionChange: onRegionChange
         )
@@ -2046,6 +2282,7 @@ private struct GardenMapUIKitView: UIViewRepresentable {
         weak var mapView: MKMapView?
         let onPinTap: (GardenMapScreen.PlantPin) -> Void
         let onPinLongPress: (GardenMapScreen.PlantPin) -> Void
+        let onMapLongPress: (CLLocationCoordinate2D) -> Void
         let onPinDrag: (GardenMapScreen.PlantPin, CLLocationCoordinate2D) -> Void
         let onRegionChange: (MKCoordinateRegion) -> Void
         var didSetInitialRegion = false
@@ -2075,11 +2312,13 @@ private struct GardenMapUIKitView: UIViewRepresentable {
         init(
             onPinTap: @escaping (GardenMapScreen.PlantPin) -> Void,
             onPinLongPress: @escaping (GardenMapScreen.PlantPin) -> Void,
+            onMapLongPress: @escaping (CLLocationCoordinate2D) -> Void,
             onPinDrag: @escaping (GardenMapScreen.PlantPin, CLLocationCoordinate2D) -> Void,
             onRegionChange: @escaping (MKCoordinateRegion) -> Void
         ) {
             self.onPinTap = onPinTap
             self.onPinLongPress = onPinLongPress
+            self.onMapLongPress = onMapLongPress
             self.onPinDrag = onPinDrag
             self.onRegionChange = onRegionChange
         }
@@ -2260,7 +2499,12 @@ private struct GardenMapUIKitView: UIViewRepresentable {
 
             let point = gesture.location(in: mapView)
             let candidateAnnotations = mapView.annotations.compactMap { $0 as? PlantPointAnnotation }
-            guard !candidateAnnotations.isEmpty else { return }
+            guard !candidateAnnotations.isEmpty else {
+                let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
+                guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+                onMapLongPress(coordinate)
+                return
+            }
 
             let nearest = candidateAnnotations.min { lhs, rhs in
                 let lp = mapView.convert(lhs.coordinate, toPointTo: mapView)
@@ -2282,6 +2526,10 @@ private struct GardenMapUIKitView: UIViewRepresentable {
             let hitThreshold = max(markerRadius + 40, 90)
             if distance <= hitThreshold {
                 onPinLongPress(nearest.pin)
+            } else {
+                let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
+                guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+                onMapLongPress(coordinate)
             }
         }
 

@@ -14,6 +14,7 @@ struct IGNVectorMapView: UIViewRepresentable {
     let editingDraft: GardenMapView.PlantEditDraft?
     let onPinTap: (GardenMapView.PlantPin) -> Void
     let onPinLongPress: (GardenMapView.PlantPin) -> Void
+    let onMapLongPress: (CLLocationCoordinate2D) -> Void
     let onPinDrag: (GardenMapView.PlantPin, CLLocationCoordinate2D) -> Void
     let onRegionChange: (MKCoordinateRegion) -> Void
 
@@ -23,6 +24,7 @@ struct IGNVectorMapView: UIViewRepresentable {
         Coordinator(
             onPinTap: onPinTap,
             onPinLongPress: onPinLongPress,
+            onMapLongPress: onMapLongPress,
             onPinDrag: onPinDrag,
             onRegionChange: onRegionChange
         )
@@ -131,6 +133,7 @@ struct IGNVectorMapView: UIViewRepresentable {
 
         let onPinTap: (GardenMapView.PlantPin) -> Void
         let onPinLongPress: (GardenMapView.PlantPin) -> Void
+        let onMapLongPress: (CLLocationCoordinate2D) -> Void
         let onPinDrag: (GardenMapView.PlantPin, CLLocationCoordinate2D) -> Void
         let onRegionChange: (MKCoordinateRegion) -> Void
 
@@ -155,15 +158,24 @@ struct IGNVectorMapView: UIViewRepresentable {
         private let lidarLayerID = "jf-lidar-layer"
         private var reliefEnabled = true
         private var reliefOpacity = 0.5
+        private lazy var mapLongPressRecognizer: UILongPressGestureRecognizer = {
+            let gesture = UILongPressGestureRecognizer(target: self, action: #selector(handleMapLongPress(_:)))
+            gesture.minimumPressDuration = 0.45
+            gesture.allowableMovement = 18
+            gesture.cancelsTouchesInView = false
+            return gesture
+        }()
 
         init(
             onPinTap: @escaping (GardenMapView.PlantPin) -> Void,
             onPinLongPress: @escaping (GardenMapView.PlantPin) -> Void,
+            onMapLongPress: @escaping (CLLocationCoordinate2D) -> Void,
             onPinDrag: @escaping (GardenMapView.PlantPin, CLLocationCoordinate2D) -> Void,
             onRegionChange: @escaping (MKCoordinateRegion) -> Void
         ) {
             self.onPinTap = onPinTap
             self.onPinLongPress = onPinLongPress
+            self.onMapLongPress = onMapLongPress
             self.onPinDrag = onPinDrag
             self.onRegionChange = onRegionChange
         }
@@ -225,6 +237,10 @@ struct IGNVectorMapView: UIViewRepresentable {
         func refreshContent() {
             guard let mapView else { return }
             guard mapView.bounds.width > 1, mapView.bounds.height > 1 else { return }
+
+            if mapView.gestureRecognizers?.contains(where: { $0 === mapLongPressRecognizer }) != true {
+                mapView.addGestureRecognizer(mapLongPressRecognizer)
+            }
 
             if !didSetInitialCamera {
                 didSetInitialCamera = true
@@ -498,6 +514,20 @@ struct IGNVectorMapView: UIViewRepresentable {
                 let pin = pinByID[marker.tag]
             else { return }
             onPinLongPress(pin)
+        }
+
+        @objc
+        private func handleMapLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began, let mapView else { return }
+            let point = gesture.location(in: mapView)
+
+            if markerViewsByID.values.contains(where: { $0.frame.insetBy(dx: -18, dy: -18).contains(point) }) {
+                return
+            }
+
+            let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
+            guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+            onMapLongPress(coordinate)
         }
 
         @objc
