@@ -344,10 +344,10 @@ final class CanopyStore: ObservableObject {
         guard let lat = plant.lat, let lon = plant.lon else {
             return true
         }
-        return MapVisibilityDefaults.shouldSnapToTerrain(
-            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-            terrainPolygons: mapTerrainPolygons,
-            ilotPolygons: mapIlotPolygons
+        // Never snap an already positioned plant back to the terrain centroid.
+        // Missing/invalid coordinates can be backfilled, but field positions stay authoritative.
+        return !CLLocationCoordinate2DIsValid(
+            CLLocationCoordinate2D(latitude: lat, longitude: lon)
         )
     }
 
