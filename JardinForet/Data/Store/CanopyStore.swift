@@ -9,6 +9,8 @@ import Foundation
 import MapKit
 
 final class CanopyStore: ObservableObject {
+    private static let siteIlotAutoAssignMaxDistanceMeters: Double = 5
+
     enum DeleteCultivarResult {
         case success
         case linkedToPlants
@@ -985,15 +987,18 @@ final class CanopyStore: ObservableObject {
                 return containing.remoteID
             }
 
-            let nearest = ilots.compactMap { record -> (String, Double)? in
-                guard let centroid = Self.centroidCoordinate(for: record) else { return nil }
-                let distance = MKMapPoint(coordinate).distance(to: MKMapPoint(centroid))
+            let nearby = ilots.compactMap { record -> (String, Double)? in
+                let polygons = Self.geometryPolygons(from: record.geomJSON)
+                let polygonDistances = polygons.compactMap { polygon in
+                    Self.distanceInMeters(from: coordinate, to: polygon)
+                }
+                guard let distance = polygonDistances.min() else { return nil }
                 return (record.remoteID, distance)
             }
             .min(by: { $0.1 < $1.1 })
 
-            if let nearest {
-                return nearest.0
+            if let nearby, nearby.1 <= Self.siteIlotAutoAssignMaxDistanceMeters {
+                return nearby.0
             }
         }
 
@@ -1001,6 +1006,35 @@ final class CanopyStore: ObservableObject {
             let normalizedZone = zone
                 .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
                 .lowercased()
+
+            let individuals = try localDB.fetchIndividualsActive(siteID: siteID)
+            let groupedMatches = Dictionary(
+                grouping: individuals.compactMap { record -> String? in
+                    guard
+                        let siteIlotID = nilIfEmpty(record.siteIlotID),
+                        let recordZone = nilIfEmpty(record.zone)
+                    else {
+                        return nil
+                    }
+
+                    let normalizedRecordZone = recordZone
+                        .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                        .lowercased()
+                    return normalizedRecordZone == normalizedZone ? siteIlotID : nil
+                },
+                by: { $0 }
+            )
+            .mapValues(\.count)
+
+            if let matchedByUsage = groupedMatches.max(by: { lhs, rhs in
+                if lhs.value == rhs.value {
+                    return lhs.key > rhs.key
+                }
+                return lhs.value < rhs.value
+            })?.key,
+               ilots.contains(where: { $0.remoteID == matchedByUsage }) {
+                return matchedByUsage
+            }
 
             if let matched = ilots.first(where: {
                 let code = $0.code.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).lowercased()
@@ -1012,11 +1046,17 @@ final class CanopyStore: ObservableObject {
         }
 
         if let existingID = existing?.siteIlotID,
+           nilIfEmpty(explicitSiteIlotID) == nil,
            ilots.contains(where: { $0.remoteID == existingID }) {
-            return existingID
+            let sameLat = existing?.locationLat == latitude
+            let sameLng = existing?.locationLng == longitude
+            let sameZone = nilIfEmpty(existing?.zone) == nilIfEmpty(zone)
+            if sameLat && sameLng && sameZone {
+                return existingID
+            }
         }
 
-        return ilots.first?.remoteID
+        return nil
     }
 
     private func makeIndividualRow(
@@ -1455,6 +1495,56 @@ private extension CanopyStore {
         }
 
         return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    }
+
+    private static func distanceInMeters(
+        from coordinate: CLLocationCoordinate2D,
+        to polygon: [CLLocationCoordinate2D]
+    ) -> Double? {
+        let points = polygon.filter(CLLocationCoordinate2DIsValid)
+        guard points.count >= 2 else { return nil }
+
+        if MapVisibilityDefaults.polygonContains(coordinate, polygon: points) {
+            return 0
+        }
+
+        let mapPoint = MKMapPoint(coordinate)
+        let closedPoints: [CLLocationCoordinate2D]
+        if let first = points.first, let last = points.last,
+           abs(first.latitude - last.latitude) < 0.0000001,
+           abs(first.longitude - last.longitude) < 0.0000001 {
+            closedPoints = points
+        } else {
+            closedPoints = points + [points[0]]
+        }
+
+        var bestDistance = Double.greatestFiniteMagnitude
+        for index in 0..<(closedPoints.count - 1) {
+            let start = MKMapPoint(closedPoints[index])
+            let end = MKMapPoint(closedPoints[index + 1])
+            let distance = distanceInMeters(from: mapPoint, toSegmentFrom: start, to: end)
+            bestDistance = min(bestDistance, distance)
+        }
+
+        return bestDistance.isFinite ? bestDistance : nil
+    }
+
+    private static func distanceInMeters(
+        from point: MKMapPoint,
+        toSegmentFrom start: MKMapPoint,
+        to end: MKMapPoint
+    ) -> Double {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+
+        guard dx != 0 || dy != 0 else {
+            return point.distance(to: start)
+        }
+
+        let projection = ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)
+        let clamped = max(0, min(1, projection))
+        let projectedPoint = MKMapPoint(x: start.x + clamped * dx, y: start.y + clamped * dy)
+        return point.distance(to: projectedPoint)
     }
 
     static func siteReferenceCoordinate(

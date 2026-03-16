@@ -300,14 +300,14 @@ struct PlantFormView: View {
 
             if !store.siteIlots.isEmpty {
                 Picker("Îlot du site", selection: $selectedSiteIlotID) {
-                    Text("Auto / aucun").tag("")
+                    Text("Aucun / résolution auto").tag("")
                     ForEach(store.siteIlots.sorted(by: ilotSort), id: \.id) { ilot in
                         Text(ilotDisplayLabel(ilot)).tag(ilot.id)
                     }
                 }
             }
 
-            TextField("Repère / zone libre", text: $zone)
+            TextField("Lieu libre / repère terrain", text: $zone)
 
             if locationManager.location != nil {
                 Button {
