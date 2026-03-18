@@ -65,13 +65,14 @@ struct AccountView: View {
                 }
 
                 CanopyCard(title: "Compte", systemImage: "rectangle.portrait.and.arrow.right") {
-                    Button(role: .destructive) {
+                    Button {
                         Task { await authStore.signOut() }
                     } label: {
                         Text("Se déconnecter")
                             .frame(maxWidth: .infinity)
                     }
-                    .canopyPrimaryActionStyle()
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
                     .disabled(authStore.isLoading || !authStore.isAuthenticated)
                 }
 

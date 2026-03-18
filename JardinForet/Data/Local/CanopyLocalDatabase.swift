@@ -941,4 +941,38 @@ final class CanopyLocalDatabase {
             )
         }
     }
+
+    /// Retourne toutes les URLs d'images uniques stockées localement (espèces, cultivars, individus).
+    /// Utilisé pour le pré-chargement offline après synchronisation.
+    func fetchAllImageURLs(siteID: String?) throws -> [String] {
+        try dbPool.read { db in
+            var urls = Set<String>()
+            let tables = [
+                CanopyLocalSpeciesRecord.databaseTableName,
+                CanopyLocalCultivarRecord.databaseTableName,
+                CanopyLocalIndividualRecord.databaseTableName
+            ]
+            for table in tables {
+                let rows: [Row]
+                if let siteID, !siteID.isEmpty {
+                    rows = try Row.fetchAll(
+                        db,
+                        sql: "SELECT image_url FROM \(table) WHERE site_id = ? AND deleted_at IS NULL AND image_url IS NOT NULL",
+                        arguments: [siteID]
+                    )
+                } else {
+                    rows = try Row.fetchAll(
+                        db,
+                        sql: "SELECT image_url FROM \(table) WHERE deleted_at IS NULL AND image_url IS NOT NULL"
+                    )
+                }
+                for row in rows {
+                    if let url = row["image_url"] as? String, !url.isEmpty {
+                        urls.insert(url)
+                    }
+                }
+            }
+            return Array(urls)
+        }
+    }
 }

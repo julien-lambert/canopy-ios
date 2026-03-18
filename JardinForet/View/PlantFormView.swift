@@ -324,7 +324,7 @@ struct PlantFormView: View {
                 Button {
                     applyCurrentLocation()
                 } label: {
-                    Label(hasCoordinates ? "Actualiser avec ma position" : "Utiliser ma position actuelle",
+                    Label(hasCoordinates ? "Actualiser la position" : "Utiliser ma position",
                           systemImage: "location.fill")
                 }
             }

@@ -7,6 +7,9 @@
 
 import Foundation
 import MapKit
+#if os(iOS) && canImport(MapLibre)
+import MapLibre
+#endif
 
 final class CanopyStore: ObservableObject {
     private static let siteIlotAutoAssignMaxDistanceMeters: Double = 5
@@ -1848,6 +1851,33 @@ extension CanopyStore {
                             : "Synchro terminée"
                     }
 
+                    // Pré-chargement des images pour usage hors-ligne
+                    if let localDB = self.localDB {
+                        let siteID = try? localDB.currentSiteID()
+                        let imageURLStrings = (try? localDB.fetchAllImageURLs(siteID: siteID)) ?? []
+                        let imageURLs = imageURLStrings.compactMap { URL(string: $0) }
+                        if !imageURLs.isEmpty {
+                            await MainActor.run {
+                                self.lastSyncMessage = "Mise en cache des images (\(imageURLs.count))..."
+                            }
+                            let imgResult = await PersistentImageCache.shared.preloadImages(urls: imageURLs)
+                            syncLog(
+                                "IMAGES preloaded=\(imgResult.loaded) failed=\(imgResult.failed) notFound=\(imgResult.notFound)",
+                                runID: runID
+                            )
+                            await MainActor.run { self.lastSyncMessage = "Synchro terminée" }
+                        }
+                    }
+
+                    // Téléchargement des tuiles carte IGN pour usage hors-ligne (iOS uniquement)
+                    #if os(iOS) && canImport(MapLibre)
+                    if let siteID = summary?.siteID {
+                        await MainActor.run {
+                            self.scheduleOfflineMapDownload(siteID: siteID, force: force)
+                        }
+                    }
+                    #endif
+
                     syncLog(
                         "END success in \(elapsedMilliseconds(since: syncStartedAt)) ms",
                         runID: runID
@@ -1922,3 +1952,73 @@ extension CanopyStore {
         }
     }
 }
+
+// MARK: - Offline map tiles (iOS / MapLibre)
+
+#if os(iOS) && canImport(MapLibre)
+extension CanopyStore {
+    private static let ignStyleURLString = "https://data.geopf.fr/annexes/ressources/vectorTiles/styles/PLAN.IGN/standard.json"
+
+    /// Télécharge les tuiles IGN de la zone du site pour un usage hors-ligne.
+    /// Appelé depuis MainActor après chaque synchronisation réussie.
+    /// - Parameters:
+    ///   - siteID: identifiant du site (utilisé comme clé du pack offline)
+    ///   - force: si true, recrée le pack même s'il existe déjà (ex: après sync forcé)
+    @MainActor
+    func scheduleOfflineMapDownload(siteID: String, force: Bool = false) {
+        let allCoords = (mapTerrainPolygons + mapIlotPolygons)
+            .flatMap { $0 }
+            .filter { CLLocationCoordinate2DIsValid($0) }
+        guard !allCoords.isEmpty else {
+            AppLog.info("Offline map: pas de géométrie pour site=\(siteID), téléchargement ignoré", category: .map)
+            return
+        }
+
+        let storage = MLNOfflineStorage.shared
+        let existingPacks = storage.packs ?? []
+
+        // Si un pack existe déjà pour ce site et qu'on n'est pas en mode force, on skip
+        if !force && existingPacks.contains(where: { String(data: $0.context, encoding: .utf8) == siteID }) {
+            AppLog.info("Offline map: pack existant pour site=\(siteID), skip", category: .map)
+            return
+        }
+
+        // Supprimer les anciens packs pour ce site
+        for pack in existingPacks {
+            if String(data: pack.context, encoding: .utf8) == siteID {
+                storage.removePack(pack) { error in
+                    if let error {
+                        AppLog.warning("Offline map: erreur suppression ancien pack: \(error)", category: .map)
+                    }
+                }
+            }
+        }
+
+        // Calculer la bbox avec un padding de ~2 km
+        let padding = 0.02
+        let lats = allCoords.map(\.latitude)
+        let lons = allCoords.map(\.longitude)
+        let sw = CLLocationCoordinate2D(latitude: lats.min()! - padding, longitude: lons.min()! - padding)
+        let ne = CLLocationCoordinate2D(latitude: lats.max()! + padding, longitude: lons.max()! + padding)
+        let bounds = MLNCoordinateBounds(sw: sw, ne: ne)
+
+        guard let styleURL = URL(string: Self.ignStyleURLString) else { return }
+        let region = MLNTilePyramidOfflineRegion(
+            styleURL: styleURL,
+            bounds: bounds,
+            fromZoomLevel: 10,
+            toZoomLevel: 18
+        )
+        let contextData = siteID.data(using: .utf8) ?? Data()
+
+        storage.addPack(for: region, withContext: contextData) { pack, error in
+            if let error {
+                AppLog.warning("Offline map: échec création pack site=\(siteID): \(error)", category: .map)
+                return
+            }
+            pack?.resume()
+            AppLog.info("Offline map: téléchargement démarré pour site=\(siteID)", category: .map)
+        }
+    }
+}
+#endif

@@ -412,7 +412,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: CanopySpacing.sm) {
             CanopySectionHeader(
                 title: "Brief du jour",
-                subtitle: "Meteo, gel et priorites de terrain"
+                subtitle: "Météo, gel et priorités de terrain"
             )
 
             if let homeBrief {
@@ -429,7 +429,7 @@ struct HomeView: View {
                 )
             } else if isLoadingHomeBrief {
                 CanopyCard(title: "Brief du jour", subtitle: "Chargement...", systemImage: "cloud.sun") {
-                    ProgressView("Preparation du contexte meteo et terrain...")
+                    ProgressView("Préparation du contexte météo et terrain...")
                         .font(.subheadline)
                 }
             } else if let homeBriefError {
@@ -438,7 +438,7 @@ struct HomeView: View {
                         Text(homeBriefError)
                             .font(.subheadline)
                             .foregroundColor(.textSecondary)
-                        Button("Reessayer") {
+                        Button("Réessayer") {
                             Task { await refreshHomeBrief(force: true, withAI: false) }
                         }
                         .canopySecondaryActionStyle()
@@ -447,7 +447,7 @@ struct HomeView: View {
             } else {
                 CanopyCard(title: "Brief du jour", subtitle: "Charge-le seulement quand tu en as besoin", systemImage: "cloud.sun") {
                     VStack(alignment: .leading, spacing: CanopySpacing.sm) {
-                        Text("Le brief ne part plus automatiquement au demarrage. On garde le cout reseau et IA sous controle, et on charge seulement a la demande.")
+                        Text("Le brief ne se charge plus automatiquement au démarrage. On garde le coût réseau et IA sous contrôle, chargement à la demande.")
                             .font(.subheadline)
                             .foregroundColor(.textSecondary)
 
@@ -536,10 +536,11 @@ struct HomeView: View {
             if remainingCount > 0 {
                 NavigationLink(destination: PlantsListView()) {
                     Label(
-                        "\(remainingCount) autre\(remainingCount > 1 ? "s" : "") individu\(remainingCount > 1 ? "s" : "") à compléter",
+                        "\(remainingCount) de plus à compléter",
                         systemImage: "list.bullet"
                     )
                     .font(.footnote.weight(.medium))
+                    .lineLimit(1)
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(.accentPrimary)
@@ -756,7 +757,7 @@ private struct HomeBriefCard: View {
         let context = bundle.context
 
         CanopyCard(
-            title: "Meteo et priorites",
+            title: "Météo et priorités",
             subtitle: homeBriefSubtitle,
             systemImage: "cloud.sun"
         ) {
@@ -771,7 +772,7 @@ private struct HomeBriefCard: View {
 
                     weatherBlock(title: "Gel", lines: [
                         briefing.frostRisk.label,
-                        briefing.frostRisk.nextFrostAt.map { "Prochain gel estime: \(formatDateTime($0))" } ?? "Pas de gel prevu a court terme",
+                        briefing.frostRisk.nextFrostAt.map { "Prochain gel estimé : \(formatDateTime($0))" } ?? "Pas de gel prévu à court terme",
                         briefing.frostRisk.forecastMinC48H.map { "Min 48 h: \(metersOrTempLabel($0, suffix: " C"))" } ?? "Min 48 h: n/d",
                         "Sujets sensibles: \(context.frostRisk.sensitiveIndividualsCount)",
                     ])
@@ -807,7 +808,7 @@ private struct HomeBriefCard: View {
                                         .font(.subheadline.weight(.medium))
                                         .foregroundColor(.textPrimary)
                                     if let targetCount = task.targetCount {
-                                        Text("\(targetCount) element\(targetCount > 1 ? "s" : "") concerne\(targetCount > 1 ? "s" : "")")
+                                        Text("\(targetCount) élément\(targetCount > 1 ? "s" : "") concerné\(targetCount > 1 ? "s" : "")")
                                             .font(.caption)
                                             .foregroundColor(.textSecondary)
                                     }
@@ -818,7 +819,7 @@ private struct HomeBriefCard: View {
                 }
 
                 if !briefing.fieldChecks.isEmpty {
-                    homeBriefSubsection(title: "Verifications terrain") {
+                    homeBriefSubsection(title: "Vérifications terrain") {
                         ForEach(briefing.fieldChecks, id: \.self) { check in
                             Label(check, systemImage: "scope")
                                 .font(.subheadline)
@@ -828,14 +829,14 @@ private struct HomeBriefCard: View {
                 }
 
                 VStack(alignment: .leading, spacing: CanopySpacing.xs) {
-                    Text("Synthese")
+                    Text("Synthèse")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.textPrimary)
                     Text(briefing.summary)
                         .font(.subheadline)
                         .foregroundColor(.textSecondary)
                     HStack(spacing: CanopySpacing.sm) {
-                        Text("Confiance: \(briefing.confidence.capitalized)")
+                        Text("Confiance : \(briefing.confidence.capitalized)")
                             .font(.caption)
                             .foregroundColor(.textSecondary)
                         if let provider = bundle.llm.provider, !provider.isEmpty {
@@ -846,26 +847,26 @@ private struct HomeBriefCard: View {
                     }
                 }
 
-                HStack(spacing: CanopySpacing.sm) {
-                    Button {
-                        onRefresh()
-                    } label: {
-                        Label(isRefreshing ? "Actualisation..." : "Actualiser", systemImage: "arrow.clockwise")
+                VStack(alignment: .leading, spacing: CanopySpacing.xs) {
+                    HStack(spacing: CanopySpacing.sm) {
+                        Button {
+                            onRefresh()
+                        } label: {
+                            Label(isRefreshing ? "Actualisation..." : "Actualiser", systemImage: "arrow.clockwise")
+                        }
+                        .canopySecondaryActionStyle()
+                        .disabled(isRefreshing || isAnalyzing)
+
+                        Button {
+                            onAnalyze()
+                        } label: {
+                            Label(isAnalyzing ? "Analyse en cours..." : "Analyser (IA)", systemImage: "sparkles")
+                        }
+                        .canopyPrimaryActionStyle()
+                        .disabled(isRefreshing || isAnalyzing)
                     }
-                    .canopySecondaryActionStyle()
-                    .disabled(isRefreshing || isAnalyzing)
 
-                    Button {
-                        onAnalyze()
-                    } label: {
-                        Label(isAnalyzing ? "Analyse..." : "Analyser avec l'IA", systemImage: "sparkles")
-                    }
-                    .canopyPrimaryActionStyle()
-                    .disabled(isRefreshing || isAnalyzing)
-
-                    Spacer()
-
-                    Text("Genere le \(formatDateTime(context.generatedAt))")
+                    Text("Généré le \(formatDateTime(context.generatedAt))")
                         .font(.caption2)
                         .foregroundColor(.textSecondary)
                 }
@@ -879,12 +880,12 @@ private struct HomeBriefCard: View {
 
     private var homeBriefSubtitle: String {
         if bundle.llm.generated {
-            return "Synthese reformulee avec Gemini"
+            return "Synthèse reformulée avec Gemini"
         }
         if let error = bundle.llm.error, !error.isEmpty {
-            return "Brief deterministe (IA indisponible ou coupee)"
+            return "Brief déterministe (IA indisponible ou coupée)"
         }
-        return "Contexte deterministe, analyse IA a la demande"
+        return "Contexte déterministe, analyse IA à la demande"
     }
 
     @ViewBuilder

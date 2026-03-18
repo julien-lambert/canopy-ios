@@ -183,22 +183,11 @@ fileprivate struct PlantDetailContent: View {
 
     private var iosLayout: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // 1. En-tête (nom, cultivar, latin, label)
             headerSection
-
-            // 2. Carte identité
             identityCard
-            
-            botanicalCard          // ← ajout ici
-
-            // 4. Carte plantation (date)
+            botanicalCard
             plantingCard
-
-            // 3. Carte localisation / coordonnées
             locationCard
-            
-
-            // 5. Carte notes
             notesCard
         }
     }
@@ -443,18 +432,10 @@ fileprivate struct PlantDetailContent: View {
                 InfoRow(label: "Nom latin", value: plant.latinName)
             }
 
-            if let family = plant.family, !family.isEmpty {
-                InfoRow(label: "Famille", value: family)
-            }
-
-            if let genus = plant.genus, !genus.isEmpty {
-                InfoRow(label: "Genre", value: genus)
-            }
-
             if let root = plant.rootstock, !root.isEmpty {
                 InfoRow(label: "Porte-greffe", value: root)
             }
-            // Strate botanique de l’espèce
+
             if let strata = plant.strata, !strata.isEmpty {
                 InfoRow(label: "Strate", value: strata)
             }
@@ -694,7 +675,6 @@ fileprivate struct PlantDetailContent: View {
                 }
             }
 
-            // rivate var notesCardes descriptives d’espèce / cultivar
             if let sNotes = plant.speciesNotes, !sNotes.isEmpty {
                 Divider().padding(.vertical, 4)
                 Text("Note d’espèce")
